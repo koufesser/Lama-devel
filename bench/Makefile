@@ -18,6 +18,13 @@ $(OUT): Pprint_gt.cmx Pprint_default.cmx bench_main.cmx
 $(OUT2): Pprint_gt.cmx Pprint_default.cmx demo_infix.cmx
 	$(OCAMLOPT) $(BFLAGS) $(LAMA_CMXES) -linkpkg $^ -o $@
 
+vi_demo.exe: VisitorsWrapper.cmx vi_demo.cmx
+	$(OCAMLOPT) -package visitors.runtime -linkpkg $^ -o $@
+
+VisitorsWrapper.cmx vi_demo.cmx: BFLAGS := -package visitors.ppx,visitors,GT -I ../src -rectypes
+VisitorsWrapper.cmx: BFLAGS += -dsource
+vi_demo.cmx: VisitorsWrapper.cmx VisitorsWrapper.cmi
+
 clean:
 	$(RM) *.cmi *.cmo *.cmx *.annot *.o *.opt *.byte *~ .depend $(OUT) $(GENERATED)
 

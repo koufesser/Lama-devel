@@ -26,6 +26,7 @@ class pp_pattern fself = object
   method! c_ArrayTag ppf _ = Format.fprintf ppf "#array"
   method! c_SexpTag ppf _ = Format.fprintf ppf "#sexp"
   method! c_ClosureTag ppf _ = Format.fprintf ppf "#fun"
+  method! c_UnBoxed ppf _ = Format.fprintf ppf "#UNBOXED?"
 end
 
 let pp_pattern fmt p =
