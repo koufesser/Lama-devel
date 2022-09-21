@@ -1,0 +1,63 @@
+(env
+ (dev
+  (flags
+   (:standard -warn-error -3-7-8-13-15-20-26-27-32-39))))
+
+(library
+ (name liba)
+ (modules Language Pprinter stdpath version X86 SM)
+ (libraries GT ostap)
+ (flags
+  (:standard
+   -rectypes
+   ;-dsource
+   ))
+ ;  (ocamlopt_flags
+ ;   (:standard -dsource))
+ (wrapped false)
+ (preprocess
+  (action
+   (run %{project_root}/src/pp5+gt+plugins+ostap+dump.byte %{input-file})))
+ (preprocessor_deps
+  (file %{project_root}/src/pp5+gt+plugins+ostap+dump.byte)
+  ;(file %{project_root}/src/pp5+gt+plugins+ostap+dump.exe)
+  )
+ ;(inline_tests)
+ )
+
+(executable
+ (name Driver)
+ (flags
+  (:standard
+   -rectypes
+   ;-dsource
+   ))
+ (modules Driver)
+ (libraries liba unix))
+
+; (rule
+;  (targets pp5+gt+plugins+ostap+dump.exe)
+;  (deps
+;   (package GT))
+;  (action
+;   (run
+;    mkcamlp5.opt
+;    -package
+;    camlp5,camlp5.pa_o,camlp5.pr_dump,camlp5.extend,camlp5.quotations,ostap.syntax,GT.syntax.all,GT.syntax
+;    -o
+;    %{targets})))
+
+(rule
+ (targets pp5+gt+plugins+ostap+dump.byte)
+ (deps
+  (package GT))
+ (action
+  (run
+   mkcamlp5
+   -package
+   camlp5,camlp5.pa_o,camlp5.pr_o,ostap.syntax,GT.syntax.all,GT.syntax
+   -o
+   %{targets})))
+
+(cram
+ (deps ./Driver.exe))
