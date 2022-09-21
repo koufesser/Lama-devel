@@ -3,7 +3,7 @@ ALL=$(sort $(FILES:.lama=))
 EXTRA_TARGETS =
 
 ifeq ($(LAMAC),)
-	LAMAC := LAMA=../runtime ../src/lamac -I ../stdlib
+	LAMAC := LAMA=../runtime dune exec ../src/Driver.exe --  -I ../stdlib
 	EXTRA_TARGETS += ../src/lamac
 endif
 

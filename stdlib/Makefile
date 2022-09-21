@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 FILES=$(wildcard *.lama)
 ALL=$(sort $(FILES:.lama=.o))
-LAMAC=../src/lamac -g
+LAMAC=dune exec ../src/Driver.exe -- -g
 
 all: $(ALL)
 
@@ -26,4 +26,3 @@ STM.o: List.o Fun.o
 clean:
 	rm -Rf *.s *.o *.i *~
 	pushd regression && make clean && popd
-

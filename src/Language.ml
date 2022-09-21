@@ -55,7 +55,7 @@ module Loc =
 
 let report_error ?(loc=None) str =
   raise (Semantic_error (str ^ match loc with None -> "" | Some (l, c) -> Printf.sprintf " at (%d, %d)" l c));;
-  
+
 @type k = Unmut | Mut | FVal with show, html, foldl
 
 (* Values *)
@@ -85,7 +85,7 @@ module Value =
     with show, html, foldl
 
     let is_int = function Int _ -> true | _ -> false
-                                             
+
     let to_int = function
     | Int n -> n
     | x -> failwith (Printf.sprintf "int value expected (%s)\n" (show(t) (fun _ -> "<not supported>") (fun _ -> "<not supported>") x))
@@ -173,7 +173,7 @@ module Builtin =
 (* States *)
 module State =
   struct
-                                 
+
     (* State: global state, local state, scope variables *)
     @type 'a t =
     | I
@@ -1255,7 +1255,7 @@ let run_parser cmd =
     "while"; "do"; "od";
     "for";
     "fun"; "var"; "public"; "external"; "import";
-    "case"; "of"; "esac"; 
+    "case"; "of"; "esac";
     "box"; "val"; "str"; "sexp"; "array";
     "infix"; "infixl"; "infixr"; "at"; "before"; "after";
     "true"; "false"; "lazy"; "eta"; "syntax"]

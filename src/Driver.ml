@@ -20,7 +20,7 @@ class options args =
     "  -dsrc     --- dump pretty-printed source code\n" ^
     "  -ds       --- dump stack machine code (the output will be written into .sm file; has no\n" ^
     "                effect if -i option is specfied)\n" ^
-    "  -b        --- compile to a stack machine bytecode\n" ^    
+    "  -b        --- compile to a stack machine bytecode\n" ^
     "  -v        --- show version\n" ^
     "  -h        --- show this help\n"
   in

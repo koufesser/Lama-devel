@@ -1,6 +1,6 @@
 TESTS=$(sort $(basename $(wildcard test*.lama)))
 
-LAMAC=../src/lamac
+LAMAC=dune exec ../src/Driver.exe --
 
 .PHONY: check $(TESTS)
 

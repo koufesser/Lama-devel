@@ -8,7 +8,8 @@ PXFLAGS = $(CAMLP5)
 BFLAGS = -rectypes -g -w -13-58 -package GT,ostap,unix
 OFLAGS = $(BFLAGS)
 
-all: depend metagen  $(TOPFILE)
+all: #depend metagen  $(TOPFILE)
+	dune build ./Driver.exe
 
 metagen:
 	echo "let version = \"Version `git rev-parse --abbrev-ref HEAD`, `git rev-parse --short HEAD`, `git rev-parse --verify HEAD |git show --no-patch --no-notes --pretty='%cd'`\"" > version.ml
