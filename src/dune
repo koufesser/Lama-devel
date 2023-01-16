@@ -5,8 +5,17 @@
 
 (library
  (name liba)
- (modules Language Pprinter stdpath version X86 SM)
- (libraries GT ostap)
+ (modules Language Pprinter stdpath version X86 SM LLVMIR)
+ (libraries
+  GT
+  ostap
+  ;
+  llvm
+  llvm.analysis
+  llvm.executionengine
+  llvm.target
+  llvm.scalar_opts
+  llvm.all_backends)
  (flags
   (:standard
    -rectypes
@@ -16,14 +25,18 @@
  ;   (:standard -dsource))
  (wrapped false)
  (preprocess
-  (action
-   (run %{project_root}/src/pp5+gt+plugins+ostap+dump.byte %{input-file})))
+  (per_module
+   ((action
+     (run %{project_root}/src/pp5+gt+plugins+ostap+dump.byte %{input-file}))
+    SM
+    Language
+    Parser
+    X86)
+   ((pps ppx_inline_test ppx_expect)
+    LLVMIR)))
  (preprocessor_deps
-  (file %{project_root}/src/pp5+gt+plugins+ostap+dump.byte)
-  ;(file %{project_root}/src/pp5+gt+plugins+ostap+dump.exe)
-  )
- ;(inline_tests)
- )
+  (file %{project_root}/src/pp5+gt+plugins+ostap+dump.byte))
+ (inline_tests))
 
 (executable
  (name Driver)
@@ -60,4 +73,4 @@
    %{targets})))
 
 (cram
- (deps ./Driver.exe))
+ (deps ./Driver.exe llvm1.lama))

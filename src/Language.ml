@@ -1146,7 +1146,8 @@ module Interface =
       in
       match inner paths with
       | Some (path, intfs) -> path, intfs
-      | None               -> report_error (Printf.sprintf "could not find an interface file for import \"%s\"" import)
+      | None               ->
+        report_error (Printf.sprintf "could not find an interface file for import %S" import)
 
   end
 
@@ -1166,7 +1167,7 @@ let eval (_, expr) i =
 
 ostap (
   imports[cmd]: l:$ is:(%"import" !(Util.list (ostap (UIDENT))) -";")* {
-  let is    = "Std" :: List.flatten is in
+  let is    = (* "Std" ::  *)List.flatten is in
   let infix =
     List.fold_left
       (fun infix import ->
