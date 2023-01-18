@@ -48,18 +48,19 @@ let dump_to_object ~the_fpm =
 
 let () =
   (* Promote allocas to registers. *)
-  Llvm_scalar_opts.add_memory_to_register_promotion the_fpm;
-  (* Do simple "peephole" optimizations and bit-twiddling optzn. *)
-  Llvm_scalar_opts.add_instruction_combination the_fpm;
-  (* reassociate expressions. *)
-  Llvm_scalar_opts.add_reassociation the_fpm;
-  (* Eliminate Common SubExpressions. *)
-  Llvm_scalar_opts.add_gvn the_fpm;
-  (* Simplify the control flow graph (deleting unreachable blocks, etc). *)
-  Llvm_scalar_opts.add_cfg_simplification the_fpm;
+  (* Llvm_scalar_opts.add_memory_to_register_promotion the_fpm;
+     (* Do simple "peephole" optimizations and bit-twiddling optzn. *)
+     Llvm_scalar_opts.add_instruction_combination the_fpm;
+     (* reassociate expressions. *)
+     Llvm_scalar_opts.add_reassociation the_fpm;
+     (* Eliminate Common SubExpressions. *)
+     Llvm_scalar_opts.add_gvn the_fpm;
+     (* Simplify the control flow graph (deleting unreachable blocks, etc). *)
+     Llvm_scalar_opts.add_cfg_simplification the_fpm; *)
   Llvm.PassManager.initialize the_fpm |> ignore
 
 let failwiths fmt = Format.kasprintf failwith fmt
+let log fmt = Format.kasprintf (fun s -> Format.printf "%s\n%!" s) fmt
 
 let create_entry_block_alloca the_function var_name =
   let builder =
@@ -132,7 +133,10 @@ let build cmd (prog : prog) =
     Printf.printf "%s %d\n%!" __FILE__ __LINE__;
     let return_val = codegen_expr body in
     (* Finish off the function. *)
-    let (_ : Llvm.llvalue) = Llvm.build_ret return_val builder in
+    let (_ : Llvm.llvalue) =
+      Llvm.dump_module the_module;
+      Llvm.build_ret return_val builder
+    in
     (* Validate the generated code, checking for consistency. *)
     (match Llvm_analysis.verify_function the_function with
     | true -> ()
@@ -149,9 +153,25 @@ let build cmd (prog : prog) =
   let lamaptr_to_int llv = Llvm.const_ptrtoint llv lama_int_type in
   let rec codegen_expr = function
     | Language.Expr.Binop ("+", lhs, rhs) ->
-        let lhs_val = lamaptr_to_int (codegen_expr lhs) in
-        let rhs_val = lamaptr_to_int (codegen_expr rhs) in
-        lamaint_to_ptr (Llvm.build_add lhs_val rhs_val "addtmp" builder)
+        (* let lhs_val = lamaptr_to_int (codegen_expr lhs) in *)
+        (* let rhs_val = lamaptr_to_int (codegen_expr rhs) in *)
+        (* lamaint_to_ptr (Llvm.build_add *)
+        (* (Llvm.build_load *)
+        lamaint_to_ptr
+          (Llvm.build_add
+             (Llvm.const_int lama_int_type 1)
+             (Llvm.const_int lama_int_type 1)
+             "trololo" builder)
+        (* lamaint_to_ptr (Llvm.const_int lama_int_type 42) *)
+        (* Llvm.build_alloca lama_int_type "a" builder *)
+        (* builder *)
+        (* "aa" builder) *)
+        (* (Llvm.build_load (Llvm.build_store rhs_val (Llvm.build_alloca lama_int_type "b" builder) builder) "bb" builder)
+           ) *)
+        (* "c" builder) *)
+        (* log "adding '%s' and '%s'" (Llvm.string_of_llvalue lhs_val) (Llvm.string_of_llvalue rhs_val);
+           Printf.printf " creating binop %s %d\n%!" __FILE__ __LINE__;
+           lamaint_to_ptr (Llvm.build_add lhs_val rhs_val "addtmp" builder) *)
     | Language.Expr.Binop ("-", lhs, rhs) ->
         let lhs_val = lamaptr_to_int (codegen_expr lhs) in
         let rhs_val = lamaptr_to_int (codegen_expr rhs) in
@@ -164,7 +184,13 @@ let build cmd (prog : prog) =
         match Base.Hashtbl.find named_values name with
         | None -> failwiths "unkown variable name %s" name
         (* Load the value *)
-        | Some v -> Llvm.build_load v name builder)
+        | Some v ->
+            (* Llvm.build_load *)
+            (* Llvm.build_store (lamaptr_to_int v)
+               (Llvm.build_alloca lama_int_type "trololo" builder)
+               builder *)
+            (* "var" builder *)
+            Llvm.build_load v name builder)
     | Scope (decls, body) ->
         let _ =
           List.iter
@@ -192,7 +218,6 @@ let build cmd (prog : prog) =
         (* Printf.printf "Preparing a call %s %d\n%!" __FILE__ __LINE__; *)
         Llvm.build_call callee args "calltmp" builder
     | Skip ->
-        Printf.printf "%s %d\n%!" __FILE__ __LINE__;
         Printf.printf "%s %d\n%!" __FILE__ __LINE__;
         assert false
     | xxx -> failwiths "Unsupported: %s" (GT.show Language.Expr.t xxx)
