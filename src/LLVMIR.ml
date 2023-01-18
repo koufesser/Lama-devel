@@ -9,7 +9,10 @@ type prog =
 let context = Llvm.global_context ()
 let the_module = Llvm.create_module context "main"
 let builder = Llvm.builder context
-let double_type = Llvm.i64_type context
+let i64_type = Llvm.i64_type context
+let i32_type = Llvm.i32_type context
+let lama_int_type = i32_type
+let lama_ptr_type = Llvm.pointer_type lama_int_type
 
 (* let integer_type = Llvm.double_type context *)
 let () = assert (Llvm_executionengine.initialize ())
@@ -62,7 +65,7 @@ let create_entry_block_alloca the_function var_name =
   let builder =
     Llvm.builder_at context (Llvm.instr_begin (Llvm.entry_block the_function))
   in
-  Llvm.build_alloca double_type var_name builder
+  Llvm.build_alloca lama_ptr_type var_name builder
 
 let named_values : (string, Llvm.llvalue) Base.Hashtbl.t =
   Base.Hashtbl.create (module Base.String)
@@ -79,8 +82,9 @@ let create_argument_allocas the_function args =
 
 let prepare_main codegen_expr body =
   let ft =
-    let doubles = Array.make 0 double_type in
-    Llvm.function_type double_type doubles
+    (* TODO main has special args *)
+    let args = Array.make 0 lama_ptr_type in
+    Llvm.function_type lama_ptr_type args
   in
   let the_function = Llvm.declare_function "main" ft the_module in
   (* Set names for all arguments. *)
@@ -110,8 +114,8 @@ let build cmd (prog : prog) =
   print_endline (GT.show Language.Expr.t (snd prog));
   let gen_func codegen_expr name args body =
     let ft =
-      let doubles = Array.make (List.length args) double_type in
-      Llvm.function_type double_type doubles
+      let args = Array.make (List.length args) lama_ptr_type in
+      Llvm.function_type lama_ptr_type args
     in
     let the_function = Llvm.declare_function name ft the_module in
     (* Set names for all arguments. *)
@@ -119,11 +123,13 @@ let build cmd (prog : prog) =
         let name = List.nth args i in
         Llvm.set_value_name name a;
         Base.Hashtbl.add_exn named_values ~key:name ~data:a);
+    Printf.printf "%s %d\n%!" __FILE__ __LINE__;
     (* Create a new basic block to start insertion into. *)
     let bb = Llvm.append_block context "entry" the_function in
     Llvm.position_at_end bb builder;
     (* Add all arguments to the symbol table and create their allocas. *)
     create_argument_allocas the_function args;
+    Printf.printf "%s %d\n%!" __FILE__ __LINE__;
     let return_val = codegen_expr body in
     (* Finish off the function. *)
     let (_ : Llvm.llvalue) = Llvm.build_ret return_val builder in
@@ -139,19 +145,21 @@ let build cmd (prog : prog) =
     Llvm.dump_value the_function
   in
 
+  let lamaint_to_ptr llv = Llvm.const_inttoptr llv lama_ptr_type in
+  let lamaptr_to_int llv = Llvm.const_ptrtoint llv lama_int_type in
   let rec codegen_expr = function
     | Language.Expr.Binop ("+", lhs, rhs) ->
-        let lhs_val = codegen_expr lhs in
-        let rhs_val = codegen_expr rhs in
-        Llvm.build_add lhs_val rhs_val "addtmp" builder
+        let lhs_val = lamaptr_to_int (codegen_expr lhs) in
+        let rhs_val = lamaptr_to_int (codegen_expr rhs) in
+        lamaint_to_ptr (Llvm.build_add lhs_val rhs_val "addtmp" builder)
     | Language.Expr.Binop ("-", lhs, rhs) ->
-        let lhs_val = codegen_expr lhs in
-        let rhs_val = codegen_expr rhs in
-        Llvm.build_fsub lhs_val rhs_val "subtmp" builder
+        let lhs_val = lamaptr_to_int (codegen_expr lhs) in
+        let rhs_val = lamaptr_to_int (codegen_expr rhs) in
+        lamaint_to_ptr (Llvm.build_sub lhs_val rhs_val "subtmp" builder)
     | Language.Expr.Binop ("*", lhs, rhs) ->
-        let lhs_val = codegen_expr lhs in
-        let rhs_val = codegen_expr rhs in
-        Llvm.build_fmul lhs_val rhs_val "multmp" builder
+        let lhs_val = lamaptr_to_int (codegen_expr lhs) in
+        let rhs_val = lamaptr_to_int (codegen_expr rhs) in
+        lamaint_to_ptr (Llvm.build_mul lhs_val rhs_val "subtmp" builder)
     | Var name -> (
         match Base.Hashtbl.find named_values name with
         | None -> failwiths "unkown variable name %s" name
@@ -168,8 +176,8 @@ let build cmd (prog : prog) =
         in
         codegen_expr body
     | Language.Expr.Const n ->
-        Printf.printf "%s %d\n%!" __FILE__ __LINE__;
-        Llvm.const_int double_type n
+        (* Printf.printf "%s %d\n%!" __FILE__ __LINE__; *)
+        lamaint_to_ptr (Llvm.const_int lama_int_type n)
     | Call (Var callee_name, args) ->
         (* Look up the name in the module table. *)
         let callee =
@@ -181,6 +189,7 @@ let build cmd (prog : prog) =
         if Array.length (Llvm.params callee) = List.length args then ()
         else failwiths "incorrect number of arguments %s" (callee_name : string);
         let args = Array.map codegen_expr (Array.of_list args) in
+        (* Printf.printf "Preparing a call %s %d\n%!" __FILE__ __LINE__; *)
         Llvm.build_call callee args "calltmp" builder
     | Skip ->
         Printf.printf "%s %d\n%!" __FILE__ __LINE__;
@@ -202,6 +211,7 @@ let build cmd (prog : prog) =
 
       (* Llvm.const_float double_type 0.0 *)
       (* let lv = Llvm.const_float double_type 0.0 in *)
+      Printf.printf "Preparing main %s %d\n%!" __FILE__ __LINE__;
       prepare_main codegen_expr body;
       (* gen_func codegen_expr "main" [] (Llvm.const_float double_type 0.0); *)
       Llvm.dump_module the_module;

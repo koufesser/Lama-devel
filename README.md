@@ -66,10 +66,10 @@ Windows users should get Windows Subsystem for Linux a.k.a WSL (recommended) or 
 * Install right [switch](https://opam.ocaml.org/doc/Manual.html#Switches) for OCaml compiler
 
     ```
-    # for fresh opam 
-    opam switch create 4.14.0+flambda --packages=ocaml-variants.4.14.0+options,ocaml-option-flambda 
-    # for old opam 
-    opam switch create lama ocaml-variants.4.10.1+flambda   
+    # for fresh opam
+    opam switch create 4.14.0+flambda --packages=ocaml-variants.4.14.0+options,ocaml-option-flambda
+    # for old opam
+    opam switch create lama ocaml-variants.4.10.1+flambda
     ```
 
   In above command:
@@ -114,3 +114,9 @@ Windows users should get Windows Subsystem for Linux a.k.a WSL (recommended) or 
 ### Smoke-testing (optional)
 
 Clone the repository and run `make -C tutorial`. It should build local compiler `src/lamac` and a few tutorial executables in `tutorial/`.
+
+
+
+### LLVM stuff
+
+opam install ctypes-foreign llvm
