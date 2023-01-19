@@ -31,7 +31,7 @@ let dump_to_object ~the_fpm =
     Llvm_target.TargetMachine.create ~triple:target_triple ~cpu ~reloc_mode
       target
   in
-  Printf.printf "%s %d\n%!" __FILE__ __LINE__;
+  (* Printf.printf "%s %d\n%!" __FILE__ __LINE__; *)
   let data_layout =
     Llvm_target.TargetMachine.data_layout machine
     |> Llvm_target.DataLayout.as_string
@@ -41,7 +41,7 @@ let dump_to_object ~the_fpm =
   let filename = "output.o" in
   Llvm_target.TargetMachine.add_analysis_passes the_fpm machine;
   let file_type = Llvm_target.CodeGenFileType.ObjectFile in
-  Printf.printf "%s %d\n%!" __FILE__ __LINE__;
+  (* Printf.printf "%s %d\n%!" __FILE__ __LINE__; *)
   Llvm_target.TargetMachine.emit_to_file the_module file_type filename machine;
   (* printf "Wrote %s\n" filename; *)
   ()
@@ -109,9 +109,10 @@ let prepare_main codegen_expr body =
       Llvm_analysis.assert_valid_function the_function);
   (* Optimize the function. *)
   let (_ : bool) = Llvm.PassManager.run_function the_function the_fpm in
-  Llvm.dump_value the_function
+  (* Llvm.dump_value the_function; *)
+  ()
 
-let build cmd (prog : prog) =
+let build _cmd (prog : prog) =
   print_endline (GT.show Language.Expr.t (snd prog));
   let gen_func codegen_expr name args body =
     let ft =
@@ -124,20 +125,18 @@ let build cmd (prog : prog) =
         let name = List.nth args i in
         Llvm.set_value_name name a;
         Base.Hashtbl.add_exn named_values ~key:name ~data:a);
-    Printf.printf "%s %d\n%!" __FILE__ __LINE__;
     (* Create a new basic block to start insertion into. *)
     let bb = Llvm.append_block context "entry" the_function in
     Llvm.position_at_end bb builder;
     (* Add all arguments to the symbol table and create their allocas. *)
-    create_argument_allocas the_function args;
-    Printf.printf "%s %d\n%!" __FILE__ __LINE__;
+    (* create_argument_allocas the_function args; *)
     let return_val = codegen_expr body in
     (* Finish off the function. *)
-    let (_ : Llvm.llvalue) =
-      (* Llvm.dump_module the_module; *)
-      log "%s %d" __FILE__ __LINE__;
-      Llvm.build_ret return_val builder
-    in
+    let (_ : Llvm.llvalue) = Llvm.build_ret return_val builder in
+
+    (* Llvm.dump_module the_module; *)
+    (* log "%s %d" __FILE__ __LINE__; *)
+
     (* Validate the generated code, checking for consistency. *)
     (match Llvm_analysis.verify_function the_function with
     | true -> ()
@@ -147,28 +146,22 @@ let build cmd (prog : prog) =
         Llvm_analysis.assert_valid_function the_function);
     (* Optimize the function. *)
     let (_ : bool) = Llvm.PassManager.run_function the_function the_fpm in
-    Llvm.dump_value the_function
+    (* Llvm.dump_value the_function; *)
+    ()
   in
 
   let lamaint_to_ptr llv = Llvm.const_inttoptr llv lama_ptr_type in
   let lamaptr_to_int llv = Llvm.const_ptrtoint llv lama_int_type in
   let rec codegen_expr = function
-    | Language.Expr.Binop ("+", lhs, _rhs) ->
+    | Language.Expr.Binop ("+", lhs, rhs) ->
         let lhs_val = lamaptr_to_int (codegen_expr lhs) in
-        log "%s %d" __FILE__ __LINE__;
-        let sum =
-          Llvm.build_add (* (Llvm.const_int lama_int_type 1) *)
-            lhs_val
-            (Llvm.const_int lama_int_type 1)
-            "trololo" builder
-        in
-        log "%s %d" __FILE__ __LINE__;
-        lamaint_to_ptr sum
+        let rhs_val = lamaptr_to_int (codegen_expr rhs) in
+        lamaint_to_ptr (Llvm.build_add lhs_val rhs_val "" builder)
     | Language.Expr.Const n -> lamaint_to_ptr (Llvm.const_int lama_int_type n)
     | Var name -> (
         match Base.Hashtbl.find named_values name with
         | None -> failwiths "unkown variable name %s" name
-        | Some v -> Llvm.build_load v name builder)
+        | Some v -> v (* Llvm.build_load v name builder *))
     | Language.Expr.Binop ("-", lhs, rhs) ->
         let lhs_val = lamaptr_to_int (codegen_expr lhs) in
         let rhs_val = lamaptr_to_int (codegen_expr rhs) in
@@ -219,7 +212,7 @@ let build cmd (prog : prog) =
 
       (* Llvm.const_float double_type 0.0 *)
       (* let lv = Llvm.const_float double_type 0.0 in *)
-      Printf.printf "Preparing main %s %d\n%!" __FILE__ __LINE__;
+      (* Printf.printf "Preparing main %s %d\n%!" __FILE__ __LINE__; *)
       prepare_main codegen_expr body;
       (* gen_func codegen_expr "main" [] (Llvm.const_float double_type 0.0); *)
       Llvm.dump_module the_module;

@@ -52,7 +52,8 @@ let rec codegen_expr () =
   let lhs = Llvm.const_int lama_int_type 52 in
   let rhs =
     let v = Base.Hashtbl.find_exn named_values "x" in
-    lamaptr_to_int (Llvm.build_load v "x" builder)
+    (* lamaptr_to_int (Llvm.build_load v "x" builder) *)
+    lamaptr_to_int v
   in
 
   (* let rhs = Llvm.const_int lama_int_type 52 in *)
@@ -79,10 +80,10 @@ let prepare_main codegen_expr args body =
   (* Add all arguments to the symbol table and create their allocas. *)
   (* Finish off the function. *)
   let return_val = codegen_expr body in
-  log "%s %d" __FILE__ __LINE__;
+  (* log "%s %d" __FILE__ __LINE__; *)
   let (_ : Llvm.llvalue) = Llvm.build_ret return_val builder in
 
-  log "%s %d" __FILE__ __LINE__;
+  (* log "%s %d" __FILE__ __LINE__; *)
   Llvm.dump_module the_module;
   (match Llvm_analysis.verify_function the_function with
   | true -> ()
@@ -90,7 +91,7 @@ let prepare_main codegen_expr args body =
       Caml.Format.printf "invalid function generated\n%s\n"
         (Llvm.string_of_llvalue the_function);
       Llvm_analysis.assert_valid_function the_function);
-  log "%s %d" __FILE__ __LINE__;
+  (* log "%s %d" __FILE__ __LINE__; *)
   let (_ : bool) = Llvm.PassManager.run_function the_function the_fpm in
   Llvm.dump_value the_function
 

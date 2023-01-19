@@ -4,8 +4,7 @@
   > int64_t* fuck (int64_t  addr) { return (int64_t*)addr; }
   > int64_t* fuck1(int64_t *addr) { return addr; }
   > int64_t  fuck2(int64_t *addr) { return *addr; }
-  $ clang-15 -Wno-return-stack-address -emit-llvm -S c1.c -o c1.ll
-  $ cat c1.ll
+  $ clang -Wno-return-stack-address -emit-llvm -S c1.c -o -
   ; ModuleID = 'c1.c'
   source_filename = "c1.c"
   target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
