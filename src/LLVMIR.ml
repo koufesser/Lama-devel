@@ -81,11 +81,15 @@ let create_argument_allocas the_function args =
       (* Add arguments to variable symbol table. *)
       Base.Hashtbl.set named_values ~key:var_name ~data:alloca)
 
+let lamaint_to_ptr llv = Llvm.const_inttoptr llv lama_ptr_type
+let lamaptr_to_int llv = Llvm.const_ptrtoint llv lama_int_type
+
 let prepare_main codegen_expr body =
   let ft =
     (* TODO main has special args *)
     let args = Array.make 0 lama_ptr_type in
-    Llvm.function_type lama_ptr_type args
+    (* Llvm.function_type lama_ptr_type args *)
+    Llvm.function_type lama_int_type args
   in
   let the_function = Llvm.declare_function "main" ft the_module in
   (* Set names for all arguments. *)
@@ -98,9 +102,27 @@ let prepare_main codegen_expr body =
   Llvm.position_at_end bb builder;
   (* Add all arguments to the symbol table and create their allocas. *)
   (* Finish off the function. *)
-  let return_val = codegen_expr body in
+  let return_val =
+    let temp = Llvm.build_alloca lama_ptr_type "a" builder in
+    let body = codegen_expr body in
+    (* let body = Llvm.build_inttoptr body lama_ptr_type "aa" builder in *)
+    let ans = Llvm.build_store body temp builder in
+    let tt = Llvm.build_load temp "b" builder in
+    Llvm.build_ptrtoint tt lama_int_type "c" builder
+  in
+  (* let return_val =
+       let body = codegen_expr body in
+       let ans = Llvm.build_store (lamaptr_to_int body) temp builder in
+       Llvm.build_load temp (Llvm.value_name temp) builder
+     in *)
+  (* let return_val =
+       let body = codegen_expr body in
+       lamaptr_to_int body
+     in *)
   let (_ : Llvm.llvalue) = Llvm.build_ret return_val builder in
   (* Validate the generated code, checking for consistency. *)
+  (* Llvm.dump_module the_module; *)
+  (* log "%s %d" __FILE__ __LINE__; *)
   (match Llvm_analysis.verify_function the_function with
   | true -> ()
   | false ->
@@ -150,13 +172,11 @@ let build _cmd (prog : prog) =
     ()
   in
 
-  let lamaint_to_ptr llv = Llvm.const_inttoptr llv lama_ptr_type in
-  let lamaptr_to_int llv = Llvm.const_ptrtoint llv lama_int_type in
   let rec codegen_expr = function
     | Language.Expr.Binop ("+", lhs, rhs) ->
         let lhs_val = lamaptr_to_int (codegen_expr lhs) in
         let rhs_val = lamaptr_to_int (codegen_expr rhs) in
-        lamaint_to_ptr (Llvm.build_add lhs_val rhs_val "" builder)
+        lamaint_to_ptr (Llvm.build_add lhs_val rhs_val "addtmp" builder)
     | Language.Expr.Const n -> lamaint_to_ptr (Llvm.const_int lama_int_type n)
     | Var name -> (
         match Base.Hashtbl.find named_values name with
@@ -169,7 +189,7 @@ let build _cmd (prog : prog) =
     | Language.Expr.Binop ("*", lhs, rhs) ->
         let lhs_val = lamaptr_to_int (codegen_expr lhs) in
         let rhs_val = lamaptr_to_int (codegen_expr rhs) in
-        lamaint_to_ptr (Llvm.build_mul lhs_val rhs_val "subtmp" builder)
+        lamaint_to_ptr (Llvm.build_mul lhs_val rhs_val "multmp" builder)
     | Scope (decls, body) ->
         let _ =
           List.iter
@@ -215,7 +235,8 @@ let build _cmd (prog : prog) =
       (* Printf.printf "Preparing main %s %d\n%!" __FILE__ __LINE__; *)
       prepare_main codegen_expr body;
       (* gen_func codegen_expr "main" [] (Llvm.const_float double_type 0.0); *)
-      Llvm.dump_module the_module;
+      (* Llvm.dump_module the_module; *)
+      Llvm.print_module "pizda.ll" the_module;
       (* Llvm.dump_value lv; *)
       dump_to_object ~the_fpm;
       ()

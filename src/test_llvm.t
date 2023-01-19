@@ -4,28 +4,28 @@
   ; ModuleID = 'main'
   source_filename = "main"
   target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
-  
+
   define i32* @foo(i32* %x) {
   entry:
     ret i32* %x
   }
-  
+
   define i32* @boo(i32* %y) {
   entry:
     ret i32* inttoptr (i32 add (i32 ptrtoint (i32* %y to i32), i32 1) to i32*)
   }
-  
+
   define i32* @main() {
   entry:
     %calltmp = call i32* @boo(i32* inttoptr (i32 41 to i32*))
     ret i32* %calltmp
   }
-  [1]
 
-  $ file output.o
-  output.o: ELF 64-bit LSB relocatable, x86-64, version 1 (SYSV), not stripped
   $ gcc output.o
-  $ ./a.out || echo "FUCK" $?
-  FUCK 42
+  $ cat pizda.ll
+  $ llc pizda.ll
+  $ clang pizda.s; ./a.out ; echo "lli says " $?
+  $ ./a.out ; echo "FUCK" $?
+  FF
   $ echo $?
   0

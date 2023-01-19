@@ -1,4 +1,5 @@
-fun foo (x) { x }
-fun boo (y) { y+1 }
+--fun foo (x) { x+1 }
+fun boo (y) { 256 }
 
-boo(41)
+-- boo(32)
+256
