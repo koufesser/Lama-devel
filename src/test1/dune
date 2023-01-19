@@ -1,7 +1,15 @@
-(library
-  (name hack1test)
-  (modules hack1test)
-  (libraries llvm)
-(inline_tests)
-(preprocess(pps ppx_expect ppx_inline_test))
-)
+(executable
+ (name hack1test)
+ (modules hack1test)
+ (libraries
+  llvm
+  llvm.analysis
+  llvm.executionengine
+  llvm.target
+  llvm.scalar_opts
+  llvm.all_backends)
+ (preprocess
+  (pps ppx_expect ppx_inline_test)))
+
+(cram
+ (deps hack1test.exe))

@@ -134,7 +134,8 @@ let build cmd (prog : prog) =
     let return_val = codegen_expr body in
     (* Finish off the function. *)
     let (_ : Llvm.llvalue) =
-      Llvm.dump_module the_module;
+      (* Llvm.dump_module the_module; *)
+      log "%s %d" __FILE__ __LINE__;
       Llvm.build_ret return_val builder
     in
     (* Validate the generated code, checking for consistency. *)
@@ -152,26 +153,22 @@ let build cmd (prog : prog) =
   let lamaint_to_ptr llv = Llvm.const_inttoptr llv lama_ptr_type in
   let lamaptr_to_int llv = Llvm.const_ptrtoint llv lama_int_type in
   let rec codegen_expr = function
-    | Language.Expr.Binop ("+", lhs, rhs) ->
-        (* let lhs_val = lamaptr_to_int (codegen_expr lhs) in *)
-        (* let rhs_val = lamaptr_to_int (codegen_expr rhs) in *)
-        (* lamaint_to_ptr (Llvm.build_add *)
-        (* (Llvm.build_load *)
-        lamaint_to_ptr
-          (Llvm.build_add
-             (Llvm.const_int lama_int_type 1)
-             (Llvm.const_int lama_int_type 1)
-             "trololo" builder)
-        (* lamaint_to_ptr (Llvm.const_int lama_int_type 42) *)
-        (* Llvm.build_alloca lama_int_type "a" builder *)
-        (* builder *)
-        (* "aa" builder) *)
-        (* (Llvm.build_load (Llvm.build_store rhs_val (Llvm.build_alloca lama_int_type "b" builder) builder) "bb" builder)
-           ) *)
-        (* "c" builder) *)
-        (* log "adding '%s' and '%s'" (Llvm.string_of_llvalue lhs_val) (Llvm.string_of_llvalue rhs_val);
-           Printf.printf " creating binop %s %d\n%!" __FILE__ __LINE__;
-           lamaint_to_ptr (Llvm.build_add lhs_val rhs_val "addtmp" builder) *)
+    | Language.Expr.Binop ("+", lhs, _rhs) ->
+        let lhs_val = lamaptr_to_int (codegen_expr lhs) in
+        log "%s %d" __FILE__ __LINE__;
+        let sum =
+          Llvm.build_add (* (Llvm.const_int lama_int_type 1) *)
+            lhs_val
+            (Llvm.const_int lama_int_type 1)
+            "trololo" builder
+        in
+        log "%s %d" __FILE__ __LINE__;
+        lamaint_to_ptr sum
+    | Language.Expr.Const n -> lamaint_to_ptr (Llvm.const_int lama_int_type n)
+    | Var name -> (
+        match Base.Hashtbl.find named_values name with
+        | None -> failwiths "unkown variable name %s" name
+        | Some v -> Llvm.build_load v name builder)
     | Language.Expr.Binop ("-", lhs, rhs) ->
         let lhs_val = lamaptr_to_int (codegen_expr lhs) in
         let rhs_val = lamaptr_to_int (codegen_expr rhs) in
@@ -180,17 +177,6 @@ let build cmd (prog : prog) =
         let lhs_val = lamaptr_to_int (codegen_expr lhs) in
         let rhs_val = lamaptr_to_int (codegen_expr rhs) in
         lamaint_to_ptr (Llvm.build_mul lhs_val rhs_val "subtmp" builder)
-    | Var name -> (
-        match Base.Hashtbl.find named_values name with
-        | None -> failwiths "unkown variable name %s" name
-        (* Load the value *)
-        | Some v ->
-            (* Llvm.build_load *)
-            (* Llvm.build_store (lamaptr_to_int v)
-               (Llvm.build_alloca lama_int_type "trololo" builder)
-               builder *)
-            (* "var" builder *)
-            Llvm.build_load v name builder)
     | Scope (decls, body) ->
         let _ =
           List.iter
@@ -201,9 +187,6 @@ let build cmd (prog : prog) =
             decls
         in
         codegen_expr body
-    | Language.Expr.Const n ->
-        (* Printf.printf "%s %d\n%!" __FILE__ __LINE__; *)
-        lamaint_to_ptr (Llvm.const_int lama_int_type n)
     | Call (Var callee_name, args) ->
         (* Look up the name in the module table. *)
         let callee =
