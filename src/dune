@@ -73,4 +73,4 @@
    %{targets})))
 
 (cram
- (deps ./Driver.exe llvm1.lama))
+ (deps ./Driver.exe llvm1.lama lama_stdlib.c))

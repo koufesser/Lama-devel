@@ -108,7 +108,23 @@ let prepare_main codegen_expr body =
     (* let body = Llvm.build_inttoptr body lama_ptr_type "aa" builder in *)
     let ans = Llvm.build_store body temp builder in
     let tt = Llvm.build_load temp "b" builder in
-    Llvm.build_ptrtoint tt lama_int_type "c" builder
+
+    let c = Llvm.build_ptrtoint tt lama_int_type "c" builder in
+    let __ () =
+      Llvm.(
+        build_call
+          (lookup_function "printf" the_module |> Option.get)
+          [| const_stringz context "%d"; c |])
+        "" builder
+    in
+    let _ =
+      Llvm.(
+        build_call
+          (lookup_function "myputc" the_module |> Option.get)
+          [| c (* const_int (i8_type context) (Char.code 'z') *) |])
+        "" builder
+    in
+    Llvm.const_int lama_int_type 0
   in
   (* let return_val =
        let body = codegen_expr body in
@@ -233,6 +249,21 @@ let build _cmd (prog : prog) =
       (* Llvm.const_float double_type 0.0 *)
       (* let lv = Llvm.const_float double_type 0.0 in *)
       (* Printf.printf "Preparing main %s %d\n%!" __FILE__ __LINE__; *)
+      let _ =
+        Llvm.declare_function "printf"
+          (Llvm.var_arg_function_type lama_int_type
+             [| Llvm.array_type (Llvm.i8_type context) 3 |])
+          the_module
+      in
+      let _ =
+        Llvm.declare_function "myputc"
+          (Llvm.function_type (Llvm.void_type context) [| lama_int_type |])
+          the_module
+      in
+      (* let _ =
+           Llvm.set_global_constant true
+             (Llvm.const_array (Llvm.pointer_type (Llvm.i8_type context)) [||])
+         in *)
       prepare_main codegen_expr body;
       (* gen_func codegen_expr "main" [] (Llvm.const_float double_type 0.0); *)
       (* Llvm.dump_module the_module; *)
