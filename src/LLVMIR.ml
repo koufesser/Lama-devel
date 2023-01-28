@@ -106,7 +106,7 @@ let prepare_main codegen_expr body =
     let temp = Llvm.build_alloca lama_ptr_type "a" builder in
     let body = codegen_expr body in
     (* let body = Llvm.build_inttoptr body lama_ptr_type "aa" builder in *)
-    let ans = Llvm.build_store body temp builder in
+    let _ = Llvm.build_store body temp builder in
     let tt = Llvm.build_load temp "b" builder in
 
     let c = Llvm.build_ptrtoint tt lama_int_type "c" builder in
@@ -221,38 +221,6 @@ let build _cmd (prog : prog) =
             decls
         in
         codegen_expr body
-    | Call (Var callee_name, []) -> (
-        match Llvm.lookup_function callee_name the_module with
-        | Some callee ->
-            (* If argument mismatch error. *)
-            if Array.length (Llvm.params callee) = 0 then ()
-            else
-              failwiths "incorrect number of arguments %s"
-                (callee_name : string);
-            let args = Array.map codegen_expr [||] in
-            (* Printf.printf "Preparing a call %s %d\n%!" __FILE__ __LINE__; *)
-            Llvm.build_call callee args "calltmp" builder
-        | None ->
-            (* cast to fun-ptr *)
-
-            (* do lama_applyN *)
-            let _ =
-              let name = "myputc" in
-              match Llvm.lookup_function name the_module with
-              | Some f -> f
-              | None -> failwiths "'%s' not found" name
-            in
-            let lama_apply0 =
-              match Llvm.lookup_function "lama_apply0" the_module with
-              | Some f -> f
-              | None -> failwith "lama_apply0 not found"
-            in
-
-            Llvm.(
-              build_call lama_apply0
-                [| Base.Hashtbl.find named_values callee_name |> Option.get |])
-              "" builder
-            (* failwiths "undefined function %s" (callee_name : string) *))
     | Call (callee_expr, args) ->
         let args = List.map codegen_expr args in
         let lama_apply =
@@ -260,7 +228,7 @@ let build _cmd (prog : prog) =
             match List.length args with
             | 0 -> 0
             | 1 -> 1
-            | _ -> failwith "Not implemnted"
+            | _ -> failwiths "Not implemented"
           in
           let name = Printf.sprintf "lama_apply%d" arity in
           match Llvm.lookup_function name the_module with
@@ -269,20 +237,6 @@ let build _cmd (prog : prog) =
         in
         let final_args = codegen_expr callee_expr :: args |> Array.of_list in
         Llvm.(build_call lama_apply final_args) "" builder
-    (* | Call (Var callee_name, args) -> (
-        (* Look up the name in the module table. *)
-        match Llvm.lookup_function callee_name the_module with
-        | Some callee ->
-            (* If argument mismatch error. *)
-            if Array.length (Llvm.params callee) = List.length args then ()
-            else
-              failwiths "incorrect number of arguments %s"
-                (callee_name : string);
-            let args = Array.map codegen_expr (Array.of_list args) in
-            Llvm.build_call callee args "calltmp" builder
-        | None ->
-
-            failwiths "undefined function %s" (callee_name : string)) *)
     | Skip ->
         Printf.printf "%s %d\n%!" __FILE__ __LINE__;
         assert false
