@@ -188,6 +188,39 @@ let build _cmd (prog : prog) =
     ()
   in
 
+  (* let _ =
+       Llvm.declare_function "printf"
+         (Llvm.var_arg_function_type lama_int_type
+            [| Llvm.array_type (Llvm.i8_type context) 3 |])
+         the_module
+     in *)
+  let _ =
+    (* void* lama_applyN(void* f, int32_t, ...) *)
+    Llvm.declare_function "lama_applyN"
+      (Llvm.var_arg_function_type lama_ptr_type
+         [| lama_ptr_type; lama_int_type |])
+      the_module
+  in
+  let _ =
+    Llvm.declare_function "lama_apply0"
+      (Llvm.function_type lama_ptr_type [| lama_ptr_type |])
+      the_module
+  in
+  let _ =
+    Llvm.declare_function "lama_apply1"
+      (Llvm.function_type lama_ptr_type [| lama_ptr_type; lama_ptr_type |])
+      the_module
+  in
+  let _ =
+    Llvm.declare_function "lama_alloc_closure"
+      (Llvm.function_type lama_ptr_type [| lama_ptr_type; lama_int_type |])
+      the_module
+  in
+  let _ =
+    Llvm.declare_function "myputc"
+      (Llvm.function_type (Llvm.void_type context) [| lama_int_type |])
+      the_module
+  in
   let rec codegen_expr = function
     | Language.Expr.Binop ("+", lhs, rhs) ->
         let lhs_val = lamaptr_to_int (codegen_expr lhs) in
@@ -196,13 +229,31 @@ let build _cmd (prog : prog) =
     | Language.Expr.Const n -> lamaint_to_ptr (Llvm.const_int lama_int_type n)
     | Var name -> (
         match Base.Hashtbl.find named_values name with
-        | Some v -> v
+        | Some v -> (* an argument of current function *) v
         | None -> (
             match Llvm.lookup_function name the_module with
             | None ->
                 failwiths
                   "unkown variable name %s: neither argument nor function " name
-            | Some f -> Llvm.build_pointercast f lama_ptr_type "" builder))
+            | Some f ->
+                (* a global function *)
+                let lama_alloc_closure =
+                  let name = "lama_alloc_closure" in
+                  match Llvm.lookup_function name the_module with
+                  | Some f -> f
+                  | None -> failwiths "'%s' not found" name
+                in
+
+                let ptr = Llvm.build_pointercast f lama_ptr_type "" builder in
+                let argscount =
+                  Llvm.params f |> Array.length
+                  (* match name with "f" -> 2 | _ -> assert false *)
+                in
+                (* Llvm.dump_module the_module; *)
+                Llvm.(
+                  build_call lama_alloc_closure
+                    [| ptr; Llvm.const_int lama_int_type argscount |])
+                  "" builder))
     | Language.Expr.Binop ("-", lhs, rhs) ->
         let lhs_val = lamaptr_to_int (codegen_expr lhs) in
         let rhs_val = lamaptr_to_int (codegen_expr rhs) in
@@ -221,48 +272,75 @@ let build _cmd (prog : prog) =
             decls
         in
         codegen_expr body
+    | Call (Var callee_name, args)
+      when Option.is_some (Llvm.lookup_function callee_name the_module)
+           && Option.is_none (Base.Hashtbl.find named_values callee_name) -> (
+        (* we may do a direct call *)
+        let args = List.map codegen_expr args in
+
+        let func =
+          match Llvm.lookup_function callee_name the_module with
+          | Some f -> f
+          | None -> assert false
+        in
+
+        let real_args_count = List.length args in
+        match Int.compare real_args_count (Array.length (Llvm.params func)) with
+        | 0 -> Llvm.(build_call func (Array.of_list args)) "" builder
+        | 1 -> assert false
+        | _ ->
+            (* partial application *)
+            (* TODO(Kakadu): reread *)
+            let callee =
+              let lama_alloc_closure =
+                let name = "lama_alloc_closure" in
+                match Llvm.lookup_function name the_module with
+                | Some f -> f
+                | None -> failwiths "'%s' not found" name
+              in
+              let ptr = Llvm.build_pointercast func lama_ptr_type "" builder in
+
+              Llvm.(
+                build_call lama_alloc_closure
+                  [|
+                    ptr;
+                    Llvm.const_int lama_int_type
+                      (Array.length (Llvm.params func));
+                  |])
+                "" builder
+            in
+            let lama_apply =
+              let name = "lama_applyN" in
+              match Llvm.lookup_function name the_module with
+              | Some f -> f
+              | None -> failwiths "'%s' not found" name
+            in
+            let final_args =
+              callee :: Llvm.const_int lama_int_type real_args_count :: args
+              |> Array.of_list
+            in
+            Llvm.(build_call lama_apply final_args) "" builder)
     | Call (callee_expr, args) ->
         let args = List.map codegen_expr args in
+        let arg_number = List.length args in
         let lama_apply =
-          let arity =
-            match List.length args with
-            | 0 -> 0
-            | 1 -> 1
-            | _ -> failwiths "Not implemented"
-          in
-          let name = Printf.sprintf "lama_apply%d" arity in
+          let name = "lama_applyN" in
           match Llvm.lookup_function name the_module with
           | Some f -> f
           | None -> failwiths "'%s' not found" name
         in
-        let final_args = codegen_expr callee_expr :: args |> Array.of_list in
+        let final_args =
+          codegen_expr callee_expr
+          :: Llvm.const_int lama_int_type arg_number
+          :: args
+          |> Array.of_list
+        in
+
         Llvm.(build_call lama_apply final_args) "" builder
     | Skip ->
         Printf.printf "%s %d\n%!" __FILE__ __LINE__;
         assert false
     | xxx -> failwiths "Unsupported: %s" (GT.show Language.Expr.t xxx)
-  in
-
-  let _ =
-    Llvm.declare_function "printf"
-      (Llvm.var_arg_function_type lama_int_type
-         [| Llvm.array_type (Llvm.i8_type context) 3 |])
-      the_module
-  in
-  let _ =
-    Llvm.declare_function "lama_apply0"
-      (Llvm.function_type lama_ptr_type [| lama_ptr_type |])
-      the_module
-  in
-  let _ =
-    Llvm.declare_function "lama_apply1"
-      (Llvm.function_type lama_ptr_type [| lama_ptr_type; lama_ptr_type |])
-      the_module
-  in
-  let _ =
-    Llvm.declare_function "myputc"
-      (Llvm.function_type (Llvm.void_type context) [| lama_int_type |])
-      the_module
   in
 
   match snd prog with

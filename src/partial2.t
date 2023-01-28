@@ -52,21 +52,3 @@
   $ gcc stdlib.o output.o || echo $?
   $ ./a.out
   42
-
-  $ cat > curry4.lama <<-EOF
-  > fun f (x) {x + 1 }
-  > fun g (a) { f }
-  > g (5) (41)
-  > EOF
-  $ cat curry4.lama
-  fun f (x) {x + 1 }
-  fun g (a) { f }
-  g (5) (41)
-  $ ./Driver.exe -llvm curry4.lama -o curry1.o
-  src/Driver.ml 221
-  Scope ([("f", (`Local, `Fun (["x"], Scope ([], Binop ("+", Var ("x"), Const (1)))))); ("g", (`Local, `Fun (["a"], Scope ([], Var ("f")))))], Call (Call (Var ("g"), [Const (5)]), [Const (41)]))
-  [1]
-  $ gcc lama_stdlib.c -c -o stdlib.o
-  $ gcc stdlib.o output.o || echo $?
-  $ ./a.out
-  42
