@@ -1,7 +1,7 @@
 (env
  (dev
   (flags
-   (:standard -warn-error -3-7-8-13-15-20-26-27-32-39))))
+   (:standard -warn-error -3-7-8-11-13-15-20-26-27-32-39))))
 
 (library
  (name liba)

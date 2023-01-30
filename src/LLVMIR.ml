@@ -47,8 +47,8 @@ let dump_to_object ~the_fpm =
   ()
 
 let () =
-  (* Promote allocas to registers. *)
-  (* Llvm_scalar_opts.add_memory_to_register_promotion the_fpm;
+  (* (* Promote allocas to registers. *)
+     Llvm_scalar_opts.add_memory_to_register_promotion the_fpm;
      (* Do simple "peephole" optimizations and bit-twiddling optzn. *)
      Llvm_scalar_opts.add_instruction_combination the_fpm;
      (* reassociate expressions. *)
@@ -81,8 +81,8 @@ let create_argument_allocas the_function args =
       (* Add arguments to variable symbol table. *)
       Base.Hashtbl.set named_values ~key:var_name ~data:alloca)
 
-let lamaint_to_ptr llv = Llvm.const_inttoptr llv lama_ptr_type
-let lamaptr_to_int llv = Llvm.const_ptrtoint llv lama_int_type
+(* let lamaint_to_ptr llv = Llvm.const_inttoptr llv lama_ptr_type *)
+(* let lamaptr_to_int llv = Llvm.const_ptrtoint llv lama_int_type *)
 
 module LL = (val LL.make builder the_module)
 
@@ -171,6 +171,7 @@ let build _cmd (prog : prog) =
     let (_ : Llvm.llvalue) = Llvm.build_ret return_val builder in
 
     (* Llvm.dump_module the_module; *)
+
     (* log "%s %d" __FILE__ __LINE__; *)
 
     (* Validate the generated code, checking for consistency. *)
@@ -221,46 +222,44 @@ let build _cmd (prog : prog) =
       the_module
   in
   let rec codegen_expr = function
-    | Language.Expr.Binop ("+", lhs, rhs) ->
-        let lhs_val = lamaptr_to_int (codegen_expr lhs) in
-        let rhs_val = lamaptr_to_int (codegen_expr rhs) in
-        lamaint_to_ptr (Llvm.build_add lhs_val rhs_val "addtmp" builder)
-    | Language.Expr.Const n -> lamaint_to_ptr (Llvm.const_int lama_int_type n)
+    | Language.Expr.Binop (op, lhs, rhs) ->
+        let lhs_val = LL.build_ptrtoint (codegen_expr lhs) lama_int_type in
+        let rhs_val = LL.build_ptrtoint (codegen_expr rhs) lama_int_type in
+        let op, op_name =
+          match op with
+          | "+" -> (Llvm.build_add, "add")
+          | "-" -> (Llvm.build_sub, "sub")
+          | "/" -> (Llvm.build_sdiv, "div")
+          | "*" -> (Llvm.build_mul, "mul")
+        in
+        let temp = op lhs_val rhs_val (op_name ^ "tmp") builder in
+        Llvm.build_inttoptr temp lama_ptr_type (op_name ^ "tmp1") builder
+    | Language.Expr.Const n ->
+        let temp = Llvm.const_int lama_int_type n in
+        Llvm.build_inttoptr temp lama_ptr_type "ccc1" builder
     | Var name -> (
         match Base.Hashtbl.find named_values name with
         | Some v -> (* an argument of current function *) v
-        | None -> (
-            match Llvm.lookup_function name the_module with
-            | None ->
-                failwiths
-                  "unkown variable name %s: neither argument nor function " name
-            | Some f ->
-                (* a global function *)
-                let lama_alloc_closure =
-                  let name = "lama_alloc_closure" in
-                  match Llvm.lookup_function name the_module with
-                  | Some f -> f
-                  | None -> failwiths "'%s' not found" name
-                in
+        | None ->
+            let f = LL.lookup_func_exn name in
+            (* a global function *)
+            let lama_alloc_closure =
+              let name = "lama_alloc_closure" in
+              match Llvm.lookup_function name the_module with
+              | Some f -> f
+              | None -> failwiths "'%s' not found" name
+            in
 
-                let ptr = Llvm.build_pointercast f lama_ptr_type "" builder in
-                let argscount =
-                  Llvm.params f |> Array.length
-                  (* match name with "f" -> 2 | _ -> assert false *)
-                in
-                (* Llvm.dump_module the_module; *)
-                Llvm.(
-                  build_call lama_alloc_closure
-                    [| ptr; Llvm.const_int lama_int_type argscount |])
-                  "" builder))
-    | Language.Expr.Binop ("-", lhs, rhs) ->
-        let lhs_val = lamaptr_to_int (codegen_expr lhs) in
-        let rhs_val = lamaptr_to_int (codegen_expr rhs) in
-        lamaint_to_ptr (Llvm.build_sub lhs_val rhs_val "subtmp" builder)
-    | Language.Expr.Binop ("*", lhs, rhs) ->
-        let lhs_val = lamaptr_to_int (codegen_expr lhs) in
-        let rhs_val = lamaptr_to_int (codegen_expr rhs) in
-        lamaint_to_ptr (Llvm.build_mul lhs_val rhs_val "multmp" builder)
+            let ptr = Llvm.build_pointercast f lama_ptr_type "" builder in
+            let argscount =
+              Llvm.params f |> Array.length
+              (* match name with "f" -> 2 | _ -> assert false *)
+            in
+            (* Llvm.dump_module the_module; *)
+            Llvm.(
+              build_call lama_alloc_closure
+                [| ptr; Llvm.const_int lama_int_type argscount |])
+              "" builder)
     | Scope (decls, body) ->
         let _ =
           List.iter
