@@ -84,6 +84,8 @@ let create_argument_allocas the_function args =
 let lamaint_to_ptr llv = Llvm.const_inttoptr llv lama_ptr_type
 let lamaptr_to_int llv = Llvm.const_ptrtoint llv lama_int_type
 
+module LL = (val LL.make builder the_module)
+
 let prepare_main codegen_expr body =
   let ft =
     (* TODO main has special args *)
@@ -117,11 +119,8 @@ let prepare_main codegen_expr body =
           [| const_stringz context "%d"; c |])
         "" builder
     in
-    let _ =
-      Llvm.(
-        build_call (lookup_function "myputc" the_module |> Option.get) [| c |])
-        "" builder
-    in
+    let _ = LL.build_call LL.(lookup_func_exn "myputc") [ c ] in
+
     Llvm.const_int lama_int_type 0
   in
   (* let return_val =
