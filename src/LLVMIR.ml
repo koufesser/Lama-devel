@@ -7,7 +7,6 @@ type prog =
   * Language.Expr.t
 
 let context = Llvm.global_context ()
-let the_module = Llvm.create_module context "main"
 let builder = Llvm.builder context
 let i64_type = Llvm.i64_type context
 let i32_type = Llvm.i32_type context
@@ -80,9 +79,6 @@ let create_argument_allocas the_function args =
       let _ = Llvm.build_store ai alloca builder in
       (* Add arguments to variable symbol table. *)
       Base.Hashtbl.set named_values ~key:var_name ~data:alloca)
-
-(* let lamaint_to_ptr llv = Llvm.const_inttoptr llv lama_ptr_type *)
-(* let lamaptr_to_int llv = Llvm.const_ptrtoint llv lama_int_type *)
 
 module LL = (val LL.make builder the_module)
 
@@ -227,39 +223,29 @@ let build _cmd (prog : prog) =
         let rhs_val = LL.build_ptrtoint (codegen_expr rhs) lama_int_type in
         let op, op_name =
           match op with
-          | "+" -> (Llvm.build_add, "add")
-          | "-" -> (Llvm.build_sub, "sub")
-          | "/" -> (Llvm.build_sdiv, "div")
-          | "*" -> (Llvm.build_mul, "mul")
+          | "+" -> (LL.build_add, "add")
+          | "-" -> (LL.build_sub, "sub")
+          | "/" -> (LL.build_sdiv, "div")
+          | "*" -> (LL.build_mul, "mul")
         in
-        let temp = op lhs_val rhs_val (op_name ^ "tmp") builder in
-        Llvm.build_inttoptr temp lama_ptr_type (op_name ^ "tmp1") builder
+        (* TODO(for Danya): get rid of names *)
+        let temp = op lhs_val rhs_val ~name:(op_name ^ "tmp") in
+        LL.build_inttoptr temp lama_ptr_type ~name:(op_name ^ "tmp1")
     | Language.Expr.Const n ->
         let temp = Llvm.const_int lama_int_type n in
-        Llvm.build_inttoptr temp lama_ptr_type "ccc1" builder
+        LL.build_inttoptr temp lama_ptr_type
     | Var name -> (
         match Base.Hashtbl.find named_values name with
         | Some v -> (* an argument of current function *) v
         | None ->
             let f = LL.lookup_func_exn name in
             (* a global function *)
-            let lama_alloc_closure =
-              let name = "lama_alloc_closure" in
-              match Llvm.lookup_function name the_module with
-              | Some f -> f
-              | None -> failwiths "'%s' not found" name
-            in
-
-            let ptr = Llvm.build_pointercast f lama_ptr_type "" builder in
-            let argscount =
-              Llvm.params f |> Array.length
-              (* match name with "f" -> 2 | _ -> assert false *)
-            in
+            let lama_alloc_closure = LL.lookup_func_exn "lama_alloc_closure" in
+            let ptr = LL.build_pointercast f lama_ptr_type in
+            let argscount = LL.params f |> Array.length in
             (* Llvm.dump_module the_module; *)
-            Llvm.(
-              build_call lama_alloc_closure
-                [| ptr; Llvm.const_int lama_int_type argscount |])
-              "" builder)
+            LL.build_call lama_alloc_closure
+              [ ptr; Llvm.const_int lama_int_type argscount ])
     | Scope (decls, body) ->
         let _ =
           List.iter
@@ -275,66 +261,37 @@ let build _cmd (prog : prog) =
            && Option.is_none (Base.Hashtbl.find named_values callee_name) -> (
         (* we may do a direct call *)
         let args = List.map codegen_expr args in
-
-        let func =
-          match Llvm.lookup_function callee_name the_module with
-          | Some f -> f
-          | None -> assert false
-        in
-
+        let func = LL.lookup_func_exn callee_name in
         let real_args_count = List.length args in
-        match Int.compare real_args_count (Array.length (Llvm.params func)) with
-        | 0 -> Llvm.(build_call func (Array.of_list args)) "" builder
-        | 1 -> assert false
+        let formal_args_count = Array.length (LL.params func) in
+        match Int.compare real_args_count formal_args_count with
+        | 0 -> LL.build_call func args
+        | 1 -> failwiths "Should not happen because we don't have currying?"
         | _ ->
             (* partial application *)
-            (* TODO(Kakadu): reread *)
             let callee =
               let lama_alloc_closure =
-                let name = "lama_alloc_closure" in
-                match Llvm.lookup_function name the_module with
-                | Some f -> f
-                | None -> failwiths "'%s' not found" name
+                LL.lookup_func_exn "lama_alloc_closure"
               in
-              let ptr = Llvm.build_pointercast func lama_ptr_type "" builder in
-
-              Llvm.(
-                build_call lama_alloc_closure
-                  [|
-                    ptr;
-                    Llvm.const_int lama_int_type
-                      (Array.length (Llvm.params func));
-                  |])
-                "" builder
+              let ptr = LL.build_pointercast func lama_ptr_type in
+              LL.build_call lama_alloc_closure
+                [ ptr; LL.const_int lama_int_type formal_args_count ]
             in
-            let lama_apply =
-              let name = "lama_applyN" in
-              match Llvm.lookup_function name the_module with
-              | Some f -> f
-              | None -> failwiths "'%s' not found" name
-            in
+            let lama_apply = LL.lookup_func_exn "lama_applyN" in
             let final_args =
-              callee :: Llvm.const_int lama_int_type real_args_count :: args
-              |> Array.of_list
+              callee :: LL.const_int lama_int_type real_args_count :: args
             in
-            Llvm.(build_call lama_apply final_args) "" builder)
+            LL.build_call lama_apply final_args)
     | Call (callee_expr, args) ->
         let args = List.map codegen_expr args in
         let arg_number = List.length args in
-        let lama_apply =
-          let name = "lama_applyN" in
-          match Llvm.lookup_function name the_module with
-          | Some f -> f
-          | None -> failwiths "'%s' not found" name
-        in
+        let lama_apply = LL.lookup_func_exn "lama_applyN" in
         let final_args =
           codegen_expr callee_expr
-          :: Llvm.const_int lama_int_type arg_number
+          :: LL.const_int lama_int_type arg_number
           :: args
-          |> Array.of_list
         in
-
-        Llvm.(build_call lama_apply final_args) "" builder
+        LL.build_call lama_apply final_args
     | Skip ->
         Printf.printf "%s %d\n%!" __FILE__ __LINE__;
         assert false
