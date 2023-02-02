@@ -119,4 +119,5 @@ Clone the repository and run `make -C tutorial`. It should build local compiler 
 
 ### LLVM stuff
 
-opam install ctypes-foreign llvm
+sudo apt-get install clang clang-14
+opam install dune GT ostap ppx_expect ctypes-foreign llvm --yes
