@@ -3,6 +3,7 @@
 *)
 module OrigList = List
 
+[@@@ocaml.warning "-7-8-13-15-20-26-27-32"]
 open GT
 
 (* Opening a library for combinator-based syntax analysis *)
@@ -635,9 +636,9 @@ module Expr =
     let not_a_reference s = new Reason.t (Msg.make "not a reference" [||] (Msg.Locator.Point s#coord))
 
     (* UGLY! *)
-    let predefined_op : (Obj.t -> Obj.t -> Obj.t) ref = Pervasives.ref (fun _ _ -> invalid_arg "must not happen")
+    let predefined_op : (Obj.t -> Obj.t -> Obj.t) ref = Stdlib.ref (fun _ _ -> invalid_arg "must not happen")
 
-    let defCell = Pervasives.ref 0
+    let defCell = Stdlib.ref 0
 
     (* ======= *)
     let makeParsers env =
@@ -1202,8 +1203,8 @@ ostap (
 let parse cmd =
   let env =
     object
-      val imports   = Pervasives.ref ([] : string list)
-      val tmp_index = Pervasives.ref 0
+      val imports   = Stdlib.ref ([] : string list)
+      val tmp_index = Stdlib.ref 0
 
       method add_import imp = imports := imp :: !imports
       method get_tmp        = let index = !tmp_index in incr tmp_index; Printf.sprintf "__tmp%d" index
@@ -1224,7 +1225,7 @@ let parse cmd =
     definitions
   in
 
-  let definitions = Pervasives.ref None in
+  let definitions = Stdlib.ref None in
 
   let (makeParser, makeBasicParser, makeScopeParser) = Expr.makeParsers env in
 
@@ -1248,8 +1249,8 @@ let parse cmd =
   parse cmd
 
 
-let run_parser cmd =
-  let s   = Util.read cmd#get_infile in
+
+let run_parser_string cmd s =
   let kws = [
     "skip";
     "if"; "then"; "else"; "elif"; "fi";
@@ -1277,4 +1278,9 @@ let run_parser cmd =
        ] s
      end
     )
-    (if cmd#is_workaround then ostap (p:!(constparse cmd) -EOF)  else ostap (p:!(parse cmd) -EOF))
+    (if cmd#is_workaround
+      then ostap (p:!(constparse cmd) -EOF)
+      else ostap (p:!(parse cmd) -EOF))
+
+let run_parser cmd =
+  run_parser_string cmd (Util.read cmd#get_infile)

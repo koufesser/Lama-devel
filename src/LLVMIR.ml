@@ -227,6 +227,9 @@ let build _cmd (prog : prog) =
           | "-" -> (LL.build_sub, "sub")
           | "/" -> (LL.build_sdiv, "div")
           | "*" -> (LL.build_mul, "mul")
+          | _ ->
+              Format.kasprintf failwith
+                "Only +,/,*,- are supported by now but %s appeared" op
         in
         (* TODO(for Danya): get rid of names *)
         let temp = op lhs_val rhs_val ~name:(op_name ^ "tmp") in
@@ -297,8 +300,9 @@ let build _cmd (prog : prog) =
         assert false
     | xxx -> failwiths "Unsupported: %s" (GT.show Language.Expr.t xxx)
   in
-
-  match snd prog with
+  let conv = CConv.run (snd prog) in
+  Format.printf "Rewritten:@,@[%s@]\n%!" (GT.show Language.Expr.t conv);
+  match conv with
   | Scope (decls, body) ->
       let _ =
         List.iter

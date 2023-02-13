@@ -1,3 +1,4 @@
+[@@@ocaml.warning "-7-8-13-15-20-26-27-32"]
 open GT
 open Language
 
@@ -664,7 +665,7 @@ class env prg =
     (* allocates a fresh position on a symbolic stack *)
     method allocate =
       let x, n =
-        let rec allocate' = function
+        let allocate' = function
         | []                            -> ebx          , 0
         | (S n)::_                      -> S (n+1)      , n+2
         | (R n)::_ when n < num_of_regs -> R (n+1)      , stack_slots
@@ -691,7 +692,7 @@ class env prg =
 
     (* tag hash: gets a hash for a string tag *)
     method hash tag =
-      let h = Pervasives.ref 0 in
+      let h = Stdlib.ref 0 in
       for i = 0 to min (String.length tag - 1) 4 do
         h := (!h lsl 6) lor (String.index chars tag.[i])
       done;
