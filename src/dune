@@ -49,6 +49,7 @@
  (modules Driver)
  (libraries liba unix))
 
+; TODO: understand what's wrong with ostap in native code
 ; (rule
 ;  (targets pp5+gt+plugins+ostap+dump.exe)
 ;  (deps
@@ -74,4 +75,17 @@
    %{targets})))
 
 (cram
- (deps ./Driver.exe llvm1.lama lama_stdlib.c))
+ (deps ./Driver.exe llvm1.lama stdlib.o))
+
+(rule
+ (targets stdlib.o)
+ (deps lama_stdlib.c)
+ (action
+  (run
+   gcc
+   %{deps}
+   -c
+   -o
+   %{targets}
+   ;
+   )))

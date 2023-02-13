@@ -1,4 +1,4 @@
-  $ rm -fr *.o
+$ rm -fr *.o
   $ cat > curry10.lama <<-EOF
   > fun f (x,y) { x+y/x }
   > --fun g () { f(5) }
@@ -18,7 +18,6 @@
   src/Driver.ml 221
   Scope ([("f", (`Local, `Fun (["x"; "y"], Scope ([], Binop ("+", Var ("x"), Binop ("/", Var ("y"), Var ("x"))))))); ("h", (`Local, `Fun (["yyy"], Scope ([], Binop ("+", Call (Var ("yyy"), [Const (15)]), Call (Var ("yyy"), [Const (30)]))))))], Call (Var ("h"), [Call (Var ("f"), [Const (5)])]))
   [1]
-  $ gcc -g lama_stdlib.c -c -o stdlib.o
 
   $ gcc -g stdlib.o output.o || echo $?
   $ ./a.out

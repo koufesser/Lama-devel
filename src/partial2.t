@@ -1,4 +1,4 @@
-  $ rm -fr *.o
+$ rm -fr *.o
   $ cat > curry1.lama <<-EOF
   > fun f () { 5+15 }
   > fun g () { f }
@@ -12,7 +12,6 @@
   src/Driver.ml 221
   Scope ([("f", (`Local, `Fun ([], Scope ([], Binop ("+", Const (5), Const (15)))))); ("g", (`Local, `Fun ([], Scope ([], Var ("f")))))], Call (Call (Var ("g"), []), []))
   [1]
-  $ gcc lama_stdlib.c -c -o stdlib.o
   $ gcc stdlib.o output.o || echo $?
   $ ./a.out
   20
@@ -30,7 +29,6 @@
   src/Driver.ml 221
   Scope ([("f", (`Local, `Fun (["x"], Scope ([], Binop ("+", Var ("x"), Const (15)))))); ("g", (`Local, `Fun ([], Scope ([], Var ("f")))))], Call (Call (Var ("g"), []), [Const (1)]))
   [1]
-  $ gcc lama_stdlib.c -c -o stdlib.o
   $ gcc stdlib.o output.o || echo $?
   $ ./a.out
   16
@@ -48,7 +46,7 @@
   src/Driver.ml 221
   Scope ([("f", (`Local, `Fun (["x"], Scope ([], Binop ("+", Var ("x"), Const (1)))))); ("g", (`Local, `Fun (["foo"], Scope ([], Call (Var ("foo"), [Const (41)])))))], Call (Var ("g"), [Var ("f")]))
   [1]
-  $ gcc lama_stdlib.c -c -o stdlib.o
+$ gcc lama_stdlib.c -c -o stdlib.o
   $ gcc stdlib.o output.o || echo $?
   $ ./a.out
   42
