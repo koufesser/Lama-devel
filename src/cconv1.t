@@ -24,7 +24,44 @@ $ cat > curry1.lama <<-EOF
   > }
   > EOF
   $ cat curry1.lama
+  fun fibk (n) {
+    fun f1 () { n }
+    fun f2 () { n }
+    var x = fun () { f1() + f2 () + n };
+    fun () { f1() + f2 () + x () }
+  }
   $ ./Driver.exe -llvm curry1.lama -o curry1.o
+  src/Driver.ml 221
+  Scope ([("fibk", (`Local, `Fun (["n"], Scope ([("f1", (`Local, `Fun ([], Scope ([], Var ("n"))))); ("f2", (`Local, `Fun ([], Scope ([], Var ("n"))))); ("x", (`Local, `Variable (Some (Lambda ([], Scope ([], Binop ("+", Binop ("+", Call (Var ("f1"), []), Call (Var ("f2"), [])), Var ("n"))))))))], Lambda ([], Scope ([], Binop ("+", Binop ("+", Call (Var ("f1"), []), Call (Var ("f2"), [])), Call (Var ("x"), []))))))))], Seq (Skip, Const (0)))
+  free vars inside `Scope ([], Binop ("+", Binop ("+", Call (Var ("f1"), []), Call (Var ("f2"), [])), Var ("n")))` are:
+  {set| f1, f2, n, |set}
+  free vars inside `Scope ([], Binop ("+", Binop ("+", Call (Var ("f1"), []), Call (Var ("f2"), [])), Call (Var ("x"), [])))` are:
+  {set| f1, f2, x, |set}
+  public fun fresh_1 (f1,f2,n)
+  {
+    f1 () + f2 () + n
+  }
+  public fun fresh_2 (f1,f2,x)
+  {
+    f1 () + f2 () + x ()
+  }
+  fun fibk (n)
+  {
+    fun f1 ()
+    {
+      n
+    }
+    fun f2 ()
+    {
+      n
+    }
+    local x = fresh_1 (f1, f2, n);
+    fresh_2 (f1, f2, x)
+  }
+  skip;
+  0
+
+  [2]
 $ cat > curry1.lama <<-EOF
 > fun even (n) { if (n>0) then odd (n-1) else if n=0 then true else false fi fi }
 > fun odd  (n) { if (n>0) then even (n-1) else if n=0 then false else true fi fi }

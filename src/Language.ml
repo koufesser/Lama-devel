@@ -42,7 +42,7 @@ exception Semantic_error of string
 
 module Loc =
   struct
-    @type t = int * int with show, html, foldl
+    @type t = int * int with show, html, foldl, fmt
 
     module H = Hashtbl.Make (struct type t = string let hash = Hashtbl.hash let equal = (==) end)
 
@@ -57,7 +57,7 @@ module Loc =
 let report_error ?(loc=None) str =
   raise (Semantic_error (str ^ match loc with None -> "" | Some (l, c) -> Printf.sprintf " at (%d, %d)" l c));;
 
-@type k = Unmut | Mut | FVal with show, html, foldl
+@type k = Unmut | Mut | FVal with show, html, foldl, fmt
 
 (* Values *)
 module Value =
@@ -70,7 +70,7 @@ module Value =
     | Arg    of int
     | Access of int
     | Fun    of string
-    with show, html, foldl
+    with show, html, foldl, fmt
 
     @type ('a, 'b) t =
     | Empty
@@ -83,7 +83,7 @@ module Value =
     | Closure of string list * 'a * 'b
     | FunRef  of string * string list * 'a * int
     | Builtin of string
-    with show, html, foldl
+    with show, html, foldl, fmt
 
     let is_int = function Int _ -> true | _ -> false
 
@@ -180,7 +180,7 @@ module State =
     | I
     | G of (string * k) list * (string, 'a) arrow
     | L of (string * k) list * (string, 'a) arrow * 'a t
-    with show, html, foldl
+    with show, html, foldl, fmt
 
     (* Get the depth level of a state *)
     let rec level = function
@@ -346,16 +346,16 @@ module Expr =
     (* The type of configuration: a state, an input stream, an output stream,
        and a stack of values
     *)
-    @type 'a value  = ('a, 'a value State.t array) Value.t with show, html, foldl
-    @type 'a config = 'a value State.t * int list * int list * 'a value list with show, html, foldl
+    @type 'a value  = ('a, 'a value State.t array) Value.t with show, html, foldl, fmt
+    @type 'a config = 'a value State.t * int list * int list * 'a value list with show, html, foldl, fmt
     (* Reff : parsed expression should return value Reff (look for ":=");
        Val : -//- returns simple value;
        Void : parsed expression should not return any value;  *)
 
-    @type atr = Reff | Void | Val | Weak with show, html, foldl
+    @type atr = Reff | Void | Val | Weak with show, html, foldl, fmt
 
     @type qualifier = [ `Local | `Public | `Extern | `PublicExtern ]
-        with show, html, foldl
+        with show, html, foldl, fmt
 
     (* The type for expressions. Note, in regular OCaml there is no "@type..."
        notation, it came from GT.
@@ -386,7 +386,7 @@ module Expr =
     (* intrinsic (for evaluation) *) | Intrinsic of (t config, t config) arrow
     (* control (for control flow) *) | Control   of (t config, t * t config) arrow
     and decl = qualifier * [`Fun of string list * t | `Variable of t option]
-    with show, html, foldl
+    with show, html, foldl, fmt
 
     let notRef = function Reff -> false | _ -> true
     let isVoid = function Void | Weak -> true  | _ -> false

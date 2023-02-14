@@ -312,10 +312,9 @@ let build _cmd (prog : prog) =
         let func = Llvm.block_parent (Llvm.insertion_block builder) in
         (* Following the LLVM tutorial: https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/LangImpl05.html *)
         (* create conditional branch *)
-        let [ then_bb; else_bb; merge_bb ] =
-          List.map
-            (fun x -> Llvm.append_block context (Llvm.value_name func ^ x) func)
-            [ "_then"; "_else"; "_cont" ]
+        let then_bb, else_bb, merge_bb =
+          let f x = Llvm.append_block context (Llvm.value_name func ^ x) func in
+          (f "_then", f "_else", f "_cont")
         in
         ignore @@ Llvm.build_cond_br cond then_bb else_bb builder;
         (* then branch *)
@@ -338,7 +337,8 @@ let build _cmd (prog : prog) =
     | xxx -> failwiths "Unsupported: %s" (GT.show Language.Expr.t xxx)
   in
   let conv = CConv.run (snd prog) in
-  Format.printf "Rewritten:@,@[%s@]\n%!" (GT.show Language.Expr.t conv);
+  (* Format.printf "Rewritten:@,@[%s@]\n%!" (GT.show Language.Expr.t conv); *)
+  Format.printf "%a\n%!" Pprinter.pp conv;
   match conv with
   | Scope (decls, body) ->
       let _ =
