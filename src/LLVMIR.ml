@@ -227,6 +227,8 @@ let build _cmd (prog : prog) =
           | "-" -> (LL.build_sub, "sub")
           | "/" -> (LL.build_sdiv, "div")
           | "*" -> (LL.build_mul, "mul")
+          | ">" -> (LL.build_Sgt, "sgt")
+          | "<" -> (LL.build_Slt, "slt")
           | _ ->
               Format.kasprintf failwith
                 "Only +,/,*,- are supported by now but %s appeared" op
@@ -298,6 +300,41 @@ let build _cmd (prog : prog) =
     | Skip ->
         Printf.printf "%s %d\n%!" __FILE__ __LINE__;
         assert false
+    | If (cond, then_, else_) ->
+        (* condition *)
+        let cond =
+          Llvm.build_icmp Llvm.Icmp.Ne
+            (LL.build_ptrtoint (codegen_expr cond) lama_int_type)
+            (Llvm.const_int lama_int_type 0)
+            "ifcond" builder
+        in
+        (* get current function since basic blocks have to be inserted into a function *)
+        let func = Llvm.block_parent (Llvm.insertion_block builder) in
+        (* Following the LLVM tutorial: https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/LangImpl05.html *)
+        (* create conditional branch *)
+        let [ then_bb; else_bb; merge_bb ] =
+          List.map
+            (fun x -> Llvm.append_block context (Llvm.value_name func ^ x) func)
+            [ "_then"; "_else"; "_cont" ]
+        in
+        ignore @@ Llvm.build_cond_br cond then_bb else_bb builder;
+        (* then branch *)
+        let t =
+          Llvm.position_at_end then_bb builder;
+          codegen_expr then_
+        in
+        Llvm.build_br merge_bb builder |> ignore;
+        let then_bb = Llvm.insertion_block builder in
+        (* else branch *)
+        let e =
+          Llvm.position_at_end else_bb builder;
+          codegen_expr else_
+        in
+        let else_bb = Llvm.insertion_block builder in
+        Llvm.build_br merge_bb builder |> ignore;
+        (* merge point *)
+        Llvm.position_at_end merge_bb builder;
+        Llvm.build_phi [ (t, then_bb); (e, else_bb) ] "phi_result" builder
     | xxx -> failwiths "Unsupported: %s" (GT.show Language.Expr.t xxx)
   in
   let conv = CConv.run (snd prog) in
