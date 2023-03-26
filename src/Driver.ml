@@ -1,5 +1,13 @@
 exception Commandline_error of string
 
+type prog =
+  (string list
+  * ([ `Lefta | `Nona | `Righta ]
+    * string
+    * [ `After of string | `At of string | `Before of string ])
+    list)
+  * Language.Expr.t
+
 class options args =
   let n = Array.length args in
   let dump_ast = 0b1 in
@@ -22,7 +30,8 @@ class options args =
        into .sm file; has no\n"
     ^ "                effect if -i option is specfied)\n"
     ^ "  -b        --- compile to a stack machine bytecode\n"
-    ^ "  -v        --- show version\n" ^ "  -h        --- show this help\n"
+    ^ "  -v        --- show version\n" 
+    ^ "  -h        --- show this help\n"
   in
   object (self)
     val version = ref false
@@ -33,7 +42,7 @@ class options args =
     val paths = ref [ X86.get_std_path () ]
 
     val mode =
-      ref (`Default : [ `Default | `Eval | `SM | `Compile | `BC | `LLVM ])
+      ref (`Default : [ `Default | `Eval | `SM | `Compile | `BC | `LLVM | `LLVM_SM ])
 
     val curdir = Unix.getcwd ()
     val debug = ref false
@@ -67,6 +76,7 @@ class options args =
           | "-s" -> self#set_mode `SM
           | "-b" -> self#set_mode `BC
           | "-i" -> self#set_mode `Eval
+          | "-llvmsm" -> self#set_mode `LLVM_SM
           | "-llvm" -> self#set_mode `LLVM
           | "-ds" -> self#set_dump dump_sm
           | "-dsrc" -> self#set_dump dump_source
@@ -169,7 +179,8 @@ class options args =
         self#dump_file "html" (Buffer.contents buf))
 
     method dump_source (ast : Language.Expr.t) =
-      if !dump land dump_source > 0 then Pprinter.pp Format.std_formatter ast
+      if !dump land dump_source > 0 then
+         Pprinter.pp Format.std_formatter ast
 
     method dump_SM sm =
       if !dump land dump_sm > 0 then self#dump_file "sm" (SM.show_prg sm)
@@ -180,7 +191,7 @@ class options args =
       | None -> ()
       | Some _ -> (
           match !mode with
-          | `LLVM | `Default -> ()
+          | `LLVM | `LLVM_SM | `Default -> ()
           | _ -> Printf.printf "Output file option ignored in this mode.\n"));
       if !version then Printf.printf "%s\n" Version.version;
       if !help then Printf.printf "%s" help_string
@@ -188,6 +199,10 @@ class options args =
     method get_debug = if !debug then "" else "-g"
     method set_debug = debug := true
   end
+
+
+let output_prog (prog : prog) = 
+   print_endline (GT.show Language.Expr.t (snd prog))
 
 let main =
   try
@@ -198,29 +213,47 @@ let main =
       with Language.Semantic_error msg -> `Fail msg
     with
     | `Ok prog -> (
-        cmd#dump_AST (snd prog);
-        cmd#dump_source (snd prog);
-        match cmd#get_mode with
-        | `Default | `Compile -> ignore @@ X86.build cmd prog
-        | `BC -> SM.ByteCode.compile cmd (SM.compile cmd prog)
-        | `Eval | `SM ->
-            let rec read acc =
-              try
-                let r = read_int () in
-                Printf.printf "> ";
-                read (acc @ [ r ])
-              with End_of_file -> acc
+      (* output_prog prog; *)
+      cmd#dump_AST (snd prog);
+      cmd#dump_source (snd prog);
+      match cmd#get_mode with
+      | `Default | `Compile -> 
+        print_endline "Mode: Default | Compile";  
+        ignore @@ X86.build cmd prog
+      | `BC -> 
+        print_endline "Mode: BC";
+        SM.ByteCode.compile cmd (SM.compile cmd prog)
+      | `Eval | `SM ->
+          print_endline "Mode: Eval | SM";
+          let rec read acc =
+            let rec read_helper acc i =
+              let r = read_int () in
+              Printf.printf "> ";
+              if i < 2 then read_helper (acc @ [ r ]) (i + 1) else acc
             in
-            let input = read [] in
-            let output =
-              if cmd#get_mode = `Eval then Language.eval prog input
-              else SM.run (SM.compile cmd prog) input
-            in
-            List.iter (fun i -> Printf.printf "%d\n" i) output
-        | `LLVM ->
-            Printf.printf "%s %d\n%!" __FILE__ __LINE__;
-            LLVMIR.build cmd prog;
-            exit 1)
+          read_helper acc 0
+          in
+          let input = read [] in
+          let output =
+            if cmd#get_mode = `Eval then 
+              begin
+                print_endline "Eval mode";
+                Language.eval prog input
+              end
+            else begin 
+              print_endline "SM mode";
+              SM.run (SM.compile cmd prog) input
+            end
+          in
+          List.iter (fun i -> Printf.printf "%d\n" i) output
+      | `LLVM ->
+          Printf.printf "%s %d\n%!" __FILE__ __LINE__;
+          LLVMIR.build cmd prog;
+          exit 1
+      | `LLVM_SM ->
+          LLVMIRSM.build (SM.compile cmd prog) ;
+          exit 1 
+          )
     | `Fail er ->
         Printf.eprintf "Error: %s\n" er;
         exit 255

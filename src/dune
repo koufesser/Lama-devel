@@ -5,7 +5,7 @@
 
 (library
  (name liba)
- (modules CConv Language Pprinter stdpath version X86 SM LL LLVMIR)
+ (modules CConv Language Pprinter stdpath version X86 SM LL LLVMIR LLVMIRSM Testexample)
  (libraries
   GT
   ostap
@@ -35,7 +35,9 @@
    ((pps ppx_inline_test ppx_expect)
     CConv
     LL
-    LLVMIR)))
+    LLVMIR
+    LLVMIRSM 
+    Testexample)))
  (preprocessor_deps
   (file %{project_root}/src/pp5+gt+plugins+ostap+dump.byte))
  (inline_tests))
@@ -48,7 +50,9 @@
    ;-dsource
    ))
  (modules Driver)
- (libraries liba unix))
+ (libraries liba unix)
+ (public_name Driver)
+ )
 
 ; TODO: understand what's wrong with ostap in native code
 ; (rule
