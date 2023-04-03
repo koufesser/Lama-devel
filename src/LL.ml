@@ -17,13 +17,15 @@ module type S = sig
   val build_inttoptr : ?name:string -> llvalue -> lltype -> llvalue
   val build_pointercast : ?name:string -> llvalue -> lltype -> llvalue
 
+  val declare_function : string -> int -> llvalue 
   (** Just aliases *)
 
+  val current_function : unit -> Llvm.llvalue
   val const_int : Llvm.lltype -> int -> Llvm.llvalue
   val params : Llvm.llvalue -> Llvm.llvalue array
 end
 
-let make builder module_ =
+let make builder context module_ =
   let module L : S = struct
     let build_store a b = Llvm.build_store a b builder
 
@@ -51,8 +53,19 @@ let make builder module_ =
     let build_pointercast ?(name = "") f typ =
       Llvm.build_pointercast f typ name builder
 
+      let i32_type = i32_type context
+
+      let declare_function name nargs =
+        let params = Array.make nargs i32_type in
+        let function_type = Llvm.function_type i32_type params in 
+        Llvm.declare_function name  function_type module_ 
+
+    let current_function () = Llvm.block_parent (Llvm.insertion_block builder)
+    
     (* Aliases *)
     let const_int = Llvm.const_int
     let params = Llvm.params
+     
   end in
   (module L : S)
+

@@ -1,3 +1,5 @@
+let () =
+  Llvm.enable_pretty_stacktrace ()
 
 type prog =
   (string list
@@ -9,9 +11,11 @@ type prog =
 
 type state = 
   | None
-  | IN_MAIN
   | FUNCTION_DEFINTION
-  | IN_FUNCTION
+let string_of_state (s : state) =
+  match s with 
+  | None -> "None"
+  | FUNCTION_DEFINTION -> "function definition"
 
 let waiting_labels : string list ref = ref [] 
 
@@ -25,14 +29,12 @@ let lama_ptr_type = Llvm.pointer_type lama_int_type
 
 (* let integer_type = Llvm.double_type context *)
 let () = assert (Llvm_executionengine.initialize ())
-let function_module = Llvm.create_module context "functions"
 let main_module = Llvm.create_module context "main"
 let cur_module = ref main_module
 let the_execution_engine = Llvm_executionengine.create main_module
 let the_fpm = Llvm.PassManager.create_function main_module
 
-module LL_MAIN = (val LL.make builder main_module)
-module LL_FUNCTIONS = (val LL.make builder main_module)
+module LL = (val LL.make builder context main_module)
 
 let () =
   (* (* Promote allocas to registers. *)
@@ -53,13 +55,14 @@ let log fmt = Format.kasprintf (fun s -> Format.printf "%s\n%!" s) fmt
 let variables_stack = ref [] 
 
 module BlockMap = Map.Make(String)
-let my_map = ref BlockMap.empty
+let lables_map = ref BlockMap.empty
+let variables_map = ref BlockMap.empty
 let counter = ref 1
 
 let clean_stack () = 
   variables_stack := []
 
-let get_name = 
+let get_name () = 
   let () = counter := !counter + 1 in 
   string_of_int @@ !counter - 1
 
@@ -69,16 +72,39 @@ let create_entry_block_alloca the_function var_name =
   in
   Llvm.build_alloca lama_ptr_type var_name builder
 
+  (* pop variable from stack *)
+let pop_variable () =
+  match !variables_stack with
+  | hd :: tl -> 
+    variables_stack := tl;
+    hd
+  | [] ->  failwith "No values at stack"
+
+  (* push variable to stack *)
+let push_variable value =
+  variables_stack := value :: !variables_stack
+   
+  (* add variable to variables table *)
+let add_variable (variable : Llvm.llvalue) variable_name = 
+  let current_function = Llvm.block_parent (Llvm.insertion_block builder) in
+  let current_function_name = Llvm.value_name current_function in
+  let inner_map = BlockMap.find current_function_name !variables_map in
+  let new_inner_map = BlockMap.add variable_name variable inner_map in
+  variables_map := BlockMap.add current_function_name new_inner_map !variables_map
+
 let create_argument_allocas the_function =
+  let inner_counter = ref 0 in
   ArrayLabels.iteri (Llvm.params the_function) ~f:(fun i ai ->
-      let var_name = get_name in
-      (* Create an alloca for this variable. *)
-      let alloca = create_entry_block_alloca the_function var_name in
-      (* Store the initial value into the alloca. *)
-      let _ = Llvm.build_store ai alloca builder in
-      (* Add arguments to variable symbol table. *)
-      variables_stack := alloca :: !variables_stack)
-  
+    let var_name = get_name () in
+    (* Create an alloca for this variable. *)
+    let alloca = create_entry_block_alloca the_function var_name in
+    (* Store the initial value into the alloca. *)
+    let _ = Llvm.build_store ai alloca builder in
+    (* Add arguments to variable symbol table. *)
+    add_variable  alloca @@ string_of_int !inner_counter;
+    inner_counter := !inner_counter + 1 
+  )
+
 let show_desig (desig : Language.Value.designation) =
   match desig with
   | Global s -> print_endline (">>> Global: " ^ s)
@@ -110,37 +136,118 @@ let show_desig (desig : Language.Value.designation) =
   let () = print_endline "\n" in
   Llvm.dump_module main_module
 
+
+let find_label s = 
+  try
+  let parent_function = LL.current_function () in
+  let parent_function_name = Llvm.value_name parent_function in 
+  let function_map = BlockMap.find parent_function_name !lables_map in
+  let label = BlockMap.find s function_map in
+  Some label
+  with 
+  | Not_found -> None
+
+let find_variable s = 
+  try
+  let parent_function = LL.current_function () in
+  let parent_function_name = Llvm.value_name parent_function in 
+  let function_map = BlockMap.find parent_function_name !variables_map in
+  let variable = BlockMap.find s function_map in
+  Some variable
+  with 
+  | Not_found -> None
+  
+
+let declare_functions (insns:SM.prg) = 
+  List.iter (function (x : SM.insn) -> 
+    match x with
+    | BEGIN (name, nargs, _, _, _, _) ->
+       ignore (LL.declare_function name nargs)
+      | _ -> ()
+    ) insns
+
+  let rec define_functions_and_labels (insns:SM.prg) = 
+    List.iter (function (x : SM.insn) -> 
+      match x with
+      | BEGIN (name, nargs, _, _, _, _) -> 
+        let () = print_endline "begin" in
+        let () = cur_state := FUNCTION_DEFINTION in
+        (* Create basic block and builder *)
+        let arguments_array = Array.make nargs @@ Llvm.i32_type context in 
+        let func = Llvm.define_function name (Llvm.function_type (Llvm.i32_type context) arguments_array) !cur_module in 
+        
+        (* Create inner map for labels*)
+        let entry = Llvm.entry_block func in
+        let inner_map = BlockMap.empty in
+        let inner_map = BlockMap.add "entry" entry inner_map in
+        let _ = (lables_map := BlockMap.add name inner_map  !lables_map) in
+        let () = Llvm.position_at_end entry builder in
+        (* Create inner map for variables*)
+        let inner_map = BlockMap.empty in
+        let _ = (variables_map := BlockMap.add name inner_map  !variables_map) in
+        
+        create_argument_allocas func
+      | LABEL s -> 
+        let () = print_endline @@ "Label " ^ s in
+        (* let () = print_endline @@ "Current state " ^ string_of_state !cur_state in *)
+        if (!cur_state != FUNCTION_DEFINTION) then
+          (* let () = print_endline "then branch" in *)
+          waiting_labels := s :: !waiting_labels 
+        else 
+          (* let () = print_endline "else branch" in  *)
+          let current_function = Llvm.block_parent (Llvm.insertion_block builder) in
+          let current_function_name = Llvm.value_name current_function in
+          let () = print_endline current_function_name in
+          let block =  Llvm.append_block context s current_function in
+          let () = Llvm.position_at_end block builder in
+          let inner_map = BlockMap.find current_function_name !lables_map in
+          let new_inner_map = BlockMap.add s block inner_map in
+          lables_map := BlockMap.add current_function_name new_inner_map !lables_map
+      | END -> 
+        let () = print_endline "end" in
+        cur_state := None 
+      | _ -> ()
+      ) insns
+
+
+
+let print_basic_block_name bb =
+  let name = Llvm.value_name bb in
+  print_endline ("Basic block name: " ^ name)
+  
+let print_basic_blocks func =
+  Llvm.fold_left_blocks (fun () bb -> print_basic_block_name @@ Llvm.value_of_block bb) () func
+  
 let build_one (insn : SM.insn) = 
   match insn with
   | BINOP op ->
     let () = print_endline (">>> Binary operator: " ^ op) in
-    let () = print_module () in
-    let a_value  = List.hd !variables_stack in
-    let _ = (variables_stack := List.tl !variables_stack) in
+    (* let () = print_module () in *)
+    let a_value  = pop_variable
+   () in
     let _ = print_endline @@ "a_value:  " ^ Llvm.string_of_llvalue a_value in
-    let b_value  = List.hd !variables_stack in
-    let _ = (variables_stack := List.tl !variables_stack) in
+    let b_value  = pop_variable
+   () in
     let _ = print_endline @@ "b_value:  " ^ Llvm.string_of_llvalue a_value in
     let operand, op_name =
     match op with
-      | "+" -> (LL_MAIN.build_add, "add")
-      | "-" -> (LL_MAIN.build_sub, "sub")
-      | "/" -> (LL_MAIN.build_sdiv, "div")
-      | "*" -> (LL_MAIN.build_mul, "mul")
-      | ">" -> (LL_MAIN.build_Sgt, "sgt")
-      | "<" -> (LL_MAIN.build_Slt, "slt")
+      | "+" -> (LL.build_add, "add")
+      | "-" -> (LL.build_sub, "sub")
+      | "/" -> (LL.build_sdiv, "div")
+      | "*" -> (LL.build_mul, "mul")
+      | ">" -> (LL.build_Sgt, "sgt")
+      | "<" -> (LL.build_Slt, "slt")
       | _ ->
           Format.kasprintf failwith
             "Only +,/,*,- are supported by now but %s appeared" op
     in
-    (* TODO(for Danya): get rid of names *)
     let temp = operand a_value b_value  ~name:(op_name ^ "tmp") in
-    ignore (LL_MAIN.build_inttoptr temp lama_ptr_type ~name:(op_name ^ "tmp1"))
+    push_variable @@ LL.build_inttoptr temp lama_ptr_type ~name:(op_name ^ "tmp1")
   | CONST i ->
     let () = print_endline @@ ">>> Constant: " ^ (string_of_int i) in
     let int_val = Llvm.const_int (Llvm.i32_type context) i in
     variables_stack := int_val :: !variables_stack;
-    print_module ()
+    (* print_module () *)
   | STRING s ->
     let () = print_endline (">>> String: " ^ s) in
     let string_val = Llvm.const_string  context s in
@@ -151,8 +258,20 @@ let build_one (insn : SM.insn) =
       print_endline ">>> Not implemented\n"
   | LD desig ->
       print_endline @@ ">>> Load variable";
-      show_desig desig
-      (* print_endline "Not implemented\n" *)
+      show_desig desig;
+      let current_function = Llvm.block_parent (Llvm.insertion_block builder) in
+      (match desig with
+      | Global s -> failwiths "globals load not implemented"
+      | Local i -> failwiths "locals load not implemented"
+      | Arg i -> push_variable @@ 
+      (
+        match (find_variable @@ string_of_int i) with 
+        | Some k -> k
+        | None -> failwith "No such arguments variable"
+      )
+      | Access i -> failwiths "access load not implemented"
+      | Fun s -> failwiths "function load not implemented"
+      )
   | LDA desig ->
       print_endline ">>> Load variable address";
       show_desig desig
@@ -174,17 +293,12 @@ let build_one (insn : SM.insn) =
       (* handle array/string/sexp element *)
       print_endline ">>> Element"
       (* print_endline "Not implemented\n" *)
-  | LABEL s ->
-    if (!cur_state == FUNCTION_DEFINTION) then
-      let () = print_endline (">>> delayed label: " ^ s) in 
-      waiting_labels := s :: !waiting_labels 
-    else 
-      let () = print_endline (">>> Label: " ^ s) in
-      let current_function = Llvm.block_parent (Llvm.insertion_block builder) in
-      let block =  Llvm.append_block context s current_function in
-      my_map := BlockMap.add s block !my_map
-      
-    | FLABEL s ->
+  | LABEL s -> 
+    (match  (find_label s) with 
+    | Some block -> 
+      Llvm.position_at_end block builder
+    | None -> ())
+  | FLABEL s ->
       (* handle forwarded label *)
       print_endline (">>> Forwarded label: " ^ s)
       (* print_endline "Not implemented\n" *)
@@ -194,56 +308,39 @@ let build_one (insn : SM.insn) =
       (* print_endline "Not implemented\n" *)
   | JMP s ->
     let () = print_endline (">>> Unconditional jump: " ^ s) in
-    (* let _ =  Llvm.build_br (BlockMap.find s !my_map) builder in *)
+    ( match find_label s with 
+    | Some dest_block ->
+    let _ =  Llvm.build_br dest_block builder in
       print_endline ">>> Done\n"
+    | None -> failwiths "No such label"
+    )
   | CJMP (cond, s) ->
-      (* handle conditional jump
-      let current_function = Llvm.block_parent (Llvm.insertion_block builder) in
-      let before_bb = Llvm.append_block context ("before" ^ (string_of_int !counter)) current_function in
-      let after_bb = Llvm.append_block context ("after" ^ (string_of_int !counter)) current_function in
-      let _ = (counter := !counter + 1) in 
-      let _ = Llvm.position_at_end before_bb builder in
-      let branch_instr = Llvm.build_cond_br (int_of_string cond) (BlockMap.find s !my_map) after_bb builder in *)
-
-      print_endline (">>> Conditional jump: " ^ cond ^ " " ^ s)
-      (* print_endline "Not implemented\n" *)
-  | BEGIN (name, nargs, nlocals, args, frees, scopes) ->
+      let () = print_endline (">>> Conditional jump: " ^ cond ^ " " ^ s) in
+      let current_function = LL.current_function () in
+      let after_bb = Llvm.append_block context ("else" ^ get_name ()) current_function in
+      let dest_block = find_label s in
+      let cond_ = pop_variable
+     () in
+      ( match find_label s with 
+      Some dest_block ->
+      ignore (match cond with
+        | "z" ->  
+          Llvm.build_cond_br cond_  after_bb dest_block builder 
+        | "nz" -> 
+          Llvm.build_cond_br cond_  dest_block after_bb builder
+        | _ -> failwiths "wtf is this cjmp"
+        )
+        | None -> failwiths "No such label")
+  | BEGIN (name, _, _, _, _, _) ->
+    print_endline @@ "BEGIN" ^ name ; 
     clean_stack ();
-    (match name with
-    | "main" ->
-      (* handle procedure definition *)
-      let () = cur_module := main_module in 
-      let func = Llvm.define_function name (Llvm.function_type (Llvm.void_type context) [| |]) !cur_module in 
-      
-      (* Create basic block and builder *)
-      let entry = Llvm.append_block context "entry" func in
-      let _ = (my_map := BlockMap.add name entry  !my_map) in
-      let () = Llvm.position_at_end entry builder in 
-      let () = print_endline (">>> Begin procedure definition: " ^ name ^ " " ^ string_of_int nargs ^ " " ^ string_of_int nlocals ) in
-      show_desig_list args;
-      print_endline ">>> frees";
-      List.iter print_endline frees;
-      List.iter print_scope scopes
-      (* print_endline "Not implemented\n" *)
-      | _ ->
-      let arguments_array = Array.make nargs @@ Llvm.i32_type context in 
-      let func = Llvm.define_function name (Llvm.function_type (Llvm.void_type context) arguments_array) !cur_module in 
-      (* Create basic block and builder *)
-      let () = create_argument_allocas func in
-      let entry = Llvm.append_block context "entry" func in
-      let _ = (my_map := BlockMap.add name entry  !my_map) in
-      let () = Llvm.position_at_end entry builder in 
-      let () = print_endline (">>> Begin procedure definition: " ^ name ^ " " ^ string_of_int nargs ^ " " ^ string_of_int nlocals ) in
-      show_desig_list args;
-      print_endline ">>> frees";
-      List.iter print_endline frees;
-      List.iter print_scope scopes);
-      print_module ()
+    let func = LL.lookup_func_exn name in
+    let entry = Llvm.entry_block func in 
+    Llvm.position_at_end entry builder
   | END ->
       (* handle end procedure definition *)
       cur_state := None;
       print_endline ">>> End procedure definition";
-      print_module ()
       (* print_endline "Not implemented\n" *)
   | CLOSURE (name, args) ->
       (* handle closure *)
@@ -265,24 +362,22 @@ let build_one (insn : SM.insn) =
     print_endline (">>> Call closure with arity " ^ string_of_int arity ^ " (tail call: " ^ string_of_bool is_tail_call ^ ")")
     (* print_endline "Not implemented\n"; *)
   | CALL (func_name, arity, is_tail_call) ->
-    let () = print_endline (">>> Call function/procedure " ^ func_name ^ " with arity " ^ string_of_int arity ^ " (tail call: " ^ string_of_bool is_tail_call ^ ")") in    
-    let args = ref [] in 
-        let () = 
+      let () = print_endline (">>> Call function/procedure " ^ func_name ^ " with arity " ^ string_of_int arity ^ " (tail call: " ^ string_of_bool is_tail_call ^ ")")  in
+      let func = LL.declare_function func_name arity in
+      let args = ref [] in 
+      let () =
         for _ = 1 to arity do
           match !variables_stack with
-          | hd::tl -> 
-            let () = variables_stack := tl in 
-            args := hd :: !args
-          | [] -> Llvm.dump_module main_module;
-          Format.kasprintf failwith "No arguments for function %s in variable stack" func_name
-          done in 
-          let args_type = List.map (function x -> Llvm.type_of x) !args in
-          let args = Array.of_list !args in
-          let args_type = Array.of_list args_type in
-          let func = Llvm.declare_function func_name (Llvm.function_type i32_type args_type) main_module in
-          let var = Llvm.build_call func args (string_of_int !counter) builder in 
-          let () = counter := !counter + 1 in
-          variables_stack := var :: !variables_stack
+            | hd::tl -> 
+              let () = variables_stack := tl in 
+              args := hd :: !args
+            | [] -> Llvm.dump_module main_module;
+              Format.kasprintf failwith "No arguments for function %s in variable stack" func_name
+        done in 
+      let args = Array.of_list !args in
+      let name =  get_name () in
+      let var = Llvm.build_call func args name builder in 
+      variables_stack := var :: !variables_stack
     | RET ->
         print_endline ">>> Return from function"
         (* print_endline "Not implemented\n" *)
@@ -330,8 +425,13 @@ let build (insns:SM.prg) =
     let () = build_one h in 
     print_list t
   in
-  print_list insns;
+  (* declare_functions insns; *)
+  (* print_endline "functions declared"; *)
   Llvm.dump_module main_module;
-  Llvm.dump_module function_module
+  define_functions_and_labels insns;
+  print_endline "functions defined";
+  Llvm.dump_module main_module;
+  print_list insns;
+  Llvm.dump_module main_module
 
 let%test _ = true

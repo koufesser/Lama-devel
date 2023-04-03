@@ -80,7 +80,7 @@ let create_argument_allocas the_function args =
       (* Add arguments to variable symbol table. *)
       Base.Hashtbl.set named_values ~key:var_name ~data:alloca)
 
-module LL = (val LL.make builder the_module)
+module LL = (val LL.make builder context the_module)
 
 let prepare_main codegen_expr body =
   let ft =
