@@ -187,7 +187,7 @@ let declare_functions (insns:SM.prg) =
         let _ = (variables_map := BlockMap.add name inner_map  !variables_map) in
         
         create_argument_allocas func
-      | LABEL s -> 
+      | LABEL s | FLABEL s-> 
         let () = print_endline @@ "Label " ^ s in
         (* let () = print_endline @@ "Current state " ^ string_of_state !cur_state in *)
         if (!cur_state != FUNCTION_DEFINTION) then
@@ -300,9 +300,11 @@ let build_one (insn : SM.insn) =
     | None -> ())
   | FLABEL s ->
       (* handle forwarded label *)
-      print_endline (">>> Forwarded label: " ^ s)
-      (* print_endline "Not implemented\n" *)
-  | SLABEL s ->
+      print_endline (">>> Forwarded label: " ^ s);
+      (match  (find_label s) with 
+      | Some block -> 
+        Llvm.position_at_end block builder
+      | None -> ()) | SLABEL s ->
       (* handle scope label *)
       print_endline (">>> Scope label: " ^ s)
       (* print_endline "Not implemented\n" *)
@@ -412,10 +414,10 @@ let build_one (insn : SM.insn) =
       print_endline (">>> Public definition " ^ str)
     | IMPORT str ->
         print_endline (">>> Import clause " ^ str)
-        (* print_endline "Not implemented\n" *)
+
     | LINE line ->
-        print_endline (">>> Line info " ^ string_of_int line)
-        (* print_endline "Not implemented\n" *)
+      print_endline (">>> Line info " ^ string_of_int line)
+      (* print_endline "Not implemented\n" *)
 
 
 let build (insns:SM.prg) =
