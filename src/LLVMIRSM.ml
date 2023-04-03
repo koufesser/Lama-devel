@@ -279,8 +279,14 @@ let build_one (insn : SM.insn) =
   | ST desig ->
       (* handle store variable *)
       print_endline ">>> Store variable";
-      show_desig desig
-      (* print_endline "Not implemented\n" *)
+      show_desig desig;
+      (match desig with
+      | Global s -> failwiths "globals load not implemented"
+      | Local i -> add_variable (pop_variable ()) @@ string_of_int i
+      | Arg i -> add_variable (pop_variable ()) @@ string_of_int i
+      | Access i -> failwiths "access load not implemented"
+      | Fun s -> failwiths "function load not implemented"
+      )
   | STI ->
       (* handle store reference *)
       print_endline ">>> Store reference"
