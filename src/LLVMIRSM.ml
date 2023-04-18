@@ -61,17 +61,24 @@ type scope_t =
 
 class type common_class_t = object
   val mutable functions_map : function_class_t BlockMap.t
-  val mutable inner_scopes : scope_class_t list
+  val mutable inner_scopes : scope_class_t BlockMap.t
   val mutable labels_map : Llvm.llbasicblock BlockMap.t
   val mutable locals_map : variable_class BlockMap.t
   method is_scope : bool 
   method add_variable : variable_class -> unit
+  method add_function : function_class_t -> unit
   method add_label : Llvm.llbasicblock -> string -> unit
   method add_scope : scope_class_t -> unit
+  method get_all_functions : function_class_t BlockMap.t
+  method get_all_labels :  Llvm.llbasicblock BlockMap.t
+  method get_all_locals :  variable_class BlockMap.t
+  method get_all_scopes : scope_class_t BlockMap.t
   method get_label : string -> Llvm.llbasicblock
   method get_parent : parent_class_t
   method get_variable : string -> variable_class
+  method get_scope : string -> scope_class_t
   method has_label : string -> bool
+  method has_scope : string -> bool
   method has_variable : string -> bool
   method is_function : bool
   method is_global : bool
@@ -81,19 +88,27 @@ class type common_class_t = object
 
 end
 and scope_class_t = object
-  val blab : string
-  val elab : string
+  method get_blab : string
+  method get_elab : string
   val mutable functions_map : function_class_t BlockMap.t
-  val mutable inner_scopes : scope_class_t list
+  val mutable inner_scopes : scope_class_t BlockMap.t
   val mutable labels_map : Llvm.llbasicblock BlockMap.t
   val mutable locals_map : variable_class BlockMap.t
   method add_label : Llvm.llbasicblock -> string -> unit
   method add_variable : variable_class -> unit
+  method add_function : function_class_t -> unit
   method add_scope : scope_class_t -> unit
+  method add_function : function_class_t -> unit
+  method get_all_functions : function_class_t BlockMap.t
+  method get_all_labels :  Llvm.llbasicblock BlockMap.t
+  method get_all_locals :  variable_class BlockMap.t
+  method get_all_scopes : scope_class_t BlockMap.t
   method get_label : string -> Llvm.llbasicblock
+  method get_scope : string -> scope_class_t
   method get_parent : parent_class_t
   method get_variable : string -> variable_class
   method has_label : string -> bool
+  method has_scope : string -> bool
   method has_variable : string -> bool
   method is_function : bool
   method is_global : bool
@@ -103,19 +118,26 @@ and scope_class_t = object
 end
 and function_class_t = object 
   val mutable functions_map : function_class_t BlockMap.t
-  val mutable inner_scopes : scope_class_t list
+  val mutable inner_scopes : scope_class_t BlockMap.t
   val mutable labels_map : Llvm.llbasicblock BlockMap.t
   val mutable locals_map : variable_class BlockMap.t
   method add_label : Llvm.llbasicblock -> string -> unit
   method add_scope : scope_class_t -> unit
+  method add_function : function_class_t -> unit
   method add_variable : variable_class -> unit
+  method get_all_functions : function_class_t BlockMap.t
+  method get_all_labels :  Llvm.llbasicblock BlockMap.t
+  method get_all_locals :  variable_class BlockMap.t
+  method get_all_scopes : scope_class_t BlockMap.t
   method get_function : Llvm.llvalue
   method get_label : string -> Llvm.llbasicblock
   method get_name : string
   method get_parent : parent_class_t
   method get_variable : string -> variable_class
+  method get_scope : string -> scope_class_t
   method has_label : string -> bool
   method has_variable : string -> bool
+  method has_scope : string -> bool
   method is_function : bool
   method is_global : bool
   method is_scope : bool
@@ -135,7 +157,7 @@ object (self)
     match parent with
     | None -> failwith "No parent"
     | Some x -> x
-  val mutable inner_scopes = []
+  val mutable inner_scopes : scope_class_t BlockMap.t = BlockMap.empty 
   val mutable functions_map : function_class_t BlockMap.t = BlockMap.empty  
   val mutable locals_map =  BlockMap.empty
   val mutable labels_map = BlockMap.empty
@@ -149,14 +171,25 @@ object (self)
     | Scope -> false
     | Function -> true
     | _ -> failwith "common class without a type"
+
   method set_inner_scopes (array : scope_class_t list)  = 
-    inner_scopes <- array
+    List.iter (function x -> self#add_scope x) array 
+ 
   method is_global = 
     match scope_t with 
     | Global -> true
     | Local -> false
+
     method add_scope (scope : scope_class_t) = 
-      inner_scopes <- scope :: inner_scopes 
+      inner_scopes <- BlockMap.add scope#get_blab scope inner_scopes
+
+    method add_function (func : function_class_t) = 
+      functions_map <- BlockMap.add func#get_name func functions_map
+    
+    method get_all_labels = labels_map
+    method get_all_locals = locals_map
+    method get_all_scopes = inner_scopes
+    method get_all_functions = functions_map
 
     method has_variable (name : string) = 
       BlockMap.mem name locals_map  
@@ -176,18 +209,22 @@ object (self)
     method get_label (name : string) = 
       BlockMap.find name labels_map 
 
+    method has_scope (name: string) = 
+      BlockMap.mem name inner_scopes
+
     method find_function (name : string) = 
       BlockMap.find name functions_map 
+
+    method get_scope (blab : string) = 
+      BlockMap.find blab inner_scopes 
 end 
 and
 scope_class  (s : scope) ?(scope_t= Local) (parent : parent_class option) : scope_class_t =
 object (self)
   inherit common_class parent Scope ~scope_t:scope_t
-  val blab : string = s.blab
-  val elab : string = s.elab 
- 
-
-    end and 
+  method get_elab = s.elab 
+  method get_blab = s.blab
+end and 
 function_class (name:string) (parent : parent_class option) (func : Llvm.llvalue) : function_class_t = object (self)
   inherit common_class parent Function 
   method get_name = name
@@ -224,12 +261,19 @@ let global_scope : scope = {
   subs = [];
 }
 
-let create_function_parent_class (func : function_class) = new parent_class (Some func) None 
+
+  let create_function_parent_class (func : function_class) = new parent_class (Some func) None 
 let create_scope_parent_class (scope : scope_class) = new parent_class None (Some scope) 
 
 type container_t = 
-  | Scope of scope_class 
+  | Scope of scope_class
   | Function of function_class
+
+let parent_class_to_contatiner (p : parent_class) = 
+  match p#get_parent_class with
+  | Scope -> Scope p#get_scope
+  | Function -> Function p#get_function
+  | None -> failwith "No parent class"
 
 let get_global_scope (con: common_class) = 
   let rec go_up scope = 
@@ -266,9 +310,10 @@ let create_function (name : string) (parent : parent_class option) (func : Llvm.
   let array = ref [] in
   let parent_self = create_function_parent_class sclass in
   List.iter (function x -> array := (create_scope x @@ Some parent_self) :: !array) s;
-  sclass#set_inner_scopes !array
+  sclass#set_inner_scopes !array;
+  sclass
   
-let current_scope = ref @@ Scope global_scope 
+let current_con = ref @@ Scope global_scope 
 let current_function () = 
   let rec go_up (con : container_t) : function_class= 
     match con with 
@@ -279,10 +324,18 @@ let current_function () =
       | Function -> x#get_parent#get_function
       | None -> failwith "Not in function"
     ) in 
-    go_up !current_scope
+    go_up !current_con
+
+let go_up () = 
+  let common = to_common !current_con in
+  let parent = common#get_parent in
+  match parent#get_parent_class with 
+    | Scope -> current_con := Scope parent#get_scope
+    | Function -> current_con := Function parent#get_function
+    | None -> failwith "No parent"
 
 let create_parent_class () = 
-  match !current_scope with 
+  match !current_con with 
     | Scope x -> create_scope_parent_class x 
     | Function y -> create_function_parent_class y
 
@@ -378,11 +431,11 @@ let push_variable value =
   variables_stack := value :: !variables_stack
    
 let add_variable (variable : variable_class) = 
-  match !current_scope with 
+  match !current_con with 
     | Scope x -> x#add_variable variable
     | Function x -> x#add_variable variable
 
-let create_argument_allocas the_function =
+(* let create_argument_allocas the_function =
   ArrayLabels.iteri (Llvm.params the_function) ~f:(fun i ai ->
     let var_name = get_name () in
     (* Create an alloca for this variable. *)
@@ -392,7 +445,7 @@ let create_argument_allocas the_function =
     (* Add arguments to variable symbol table. *)
     let variable = new variable_class (get_name ()) alloca Arg (LL.current_function ()) in 
     add_variable variable; 
-  )
+  ) *)
 
 let show_desig (desig : Language.Value.designation) =
   match desig with
@@ -418,12 +471,14 @@ let find_label s =
     match scope#has_label s with 
     | true -> scope#get_label s 
     | false -> go_up (scope#get_parent#get_common_class) s in
-  go_up (to_common !current_scope) s
+  go_up (to_common !current_con) s
 
 let rec _find_variable variable_name (scope: common_class_t) = 
   match scope#has_variable variable_name with 
    | true -> scope#get_variable variable_name
    | false -> _find_variable variable_name scope#get_parent#get_common_class 
+
+let is_in_function () = (to_common !current_con)#is_global 
 
 let get_global_scope_as_scope () = 
   let rec  matching (x : common_class) = 
@@ -435,17 +490,63 @@ let get_global_scope_as_scope () =
     go_up (con : container_t) : scope_class = 
       match con with 
         | Function x ->  matching (x :> common_class) 
-        | Scope x -> if (x#is_global) then x else matching x in 
-  go_up !current_scope
+        | Scope x -> if (x#is_global) then x else matching (x:>common_class) in 
+  go_up !current_con
+
+  let rec print_common_class (com : common_class) = 
+    let print_key key _ = 
+      print_endline key in
+    print_endline "Variables: ";
+    BlockMap.iter print_key com#get_all_locals;
+    print_endline "Labels: ";
+    BlockMap.iter print_key com#get_all_labels;
+    print_endline "Functions: ";
+    BlockMap.iter (function _ -> function value ->  print_function_class value) com#get_all_functions;
+    print_endline "Scopes: ";
+    BlockMap.iter (function _ -> function value ->  print_scope_class value) com#get_all_scopes;
+  and
+    print_function_class (func : function_class) =
+      print_endline @@ "function: " ^ func#get_name;
+      print_common_class (func :> common_class)
+  and
+    print_scope_class (scope : scope_class) =
+      print_string "Scope \nelab:";
+      print_endline scope#get_elab;
+      print_string "blab:";
+      print_endline scope#get_blab;
+      print_common_class (scope :> common_class)
+  and
+    print_global_scope () = print_scope_class @@ get_global_scope_as_scope ()
 
 let find_variable variable_name =
-  let scope = !current_scope  in
+  let scope = !current_con  in
   _find_variable variable_name @@ to_common scope
+ 
+let rec current_elab (con : container_t) = 
+  match con with
+  | Scope x -> x#get_elab
+  | Function x -> current_elab @@ parent_class_to_contatiner x#get_parent
+
+(* let next_scope = match 
+  !current_con with 
+    | Scope x -> 
+      let blab = x#get_blab in
+      let parent = x#get_parent#get_common_class in 
+      let t = ref 0 in
+      let found = ref false in
+      List.iter (function x ->
+        if (x#get_blab == blab) then found := true;
+        if (not !found && x#get_blab != blab) then t := !t + 1 else ()) parent#get_all_scopes;
+      List.nth parent#get_all_scopes !t
+      | Function x -> List.hd x#get_all_scopes *)
 
 let define_functions_and_labels (insns:SM.prg) = 
   List.iter (function (x : SM.insn) -> 
     match x with
     | BEGIN (name, nargs, nlocals, closure, args, scopes) ->
+      while (nargs >= !counter) do 
+          counter := !counter + 1
+      done;
       let () = print_endline "begin" in
       print_endline @@ "name: " ^ name ^ string_of_int nargs ^ string_of_int nlocals;
       show_desig_list closure;
@@ -453,37 +554,46 @@ let define_functions_and_labels (insns:SM.prg) =
       List.iter (function x -> print_scope x) scopes;
       (* Create basic block and builder *)
       let arguments_array = Array.make nargs @@ Llvm.i32_type context in 
-      let func = Llvm.define_function name (Llvm.function_type (Llvm.i32_type context) arguments_array) !cur_module in 
-      (* Create inner map for labels*)
-      let entry = Llvm.entry_block func in
+      let llvm_func = Llvm.define_function name (Llvm.function_type (Llvm.i32_type context) arguments_array) !cur_module in 
+      let entry = Llvm.entry_block llvm_func in
       let () = Llvm.position_at_end entry builder in
       (* Create inner map for variables*)
-       
-      (to_common !current_scope)#add_label entry "entry";
-      create_argument_allocas func
-    | LABEL s | FLABEL s-> 
+      let new_function = create_function name (Some (create_parent_class ())) llvm_func scopes in
+      print_function_class new_function;
+      (to_common !current_con)#add_function new_function;
+      current_con := Function new_function;
+      (to_common !current_con)#add_label entry "entry";
+      (* create_argument_allocas llvm_func *)
+    | LABEL s | FLABEL s -> 
       let () = print_endline @@ ">>> Label " ^ s in
-      let current_function =  current_function () in
-      print_endline @@ "scope name : " ^   current_function#get_name;
-      (match current_function#get_name with
-      | "Global" -> ()
-      | scope_name -> 
+      if ((to_common !current_con)#is_global ) then () else
+      (* let () = (match !current_scope with
+      | Scope x -> print_scope_class x
+      | Function x -> print_function_class x) in *)
       let llvm_function = Llvm.block_parent (Llvm.insertion_block builder) in
       let function_name = Llvm.value_name llvm_function in
       let () = print_endline function_name in
       let block =  Llvm.append_block context s llvm_function in
       let () = Llvm.position_at_end block builder in
-      current_function#add_label block s)
+      (to_common !current_con)#add_label block s
+    | SLABEL s -> 
+      let () = print_endline @@ ">>> scope label " ^ s in
+      if ((to_common !current_con)#has_label s) then (
+        (match  !current_con with
+        | Scope x -> if (s == x#get_elab) then go_up () else (
+          current_con := Scope ( (to_common !current_con)#get_scope s )
+        )
+        | Function x -> current_con  := Scope (x#get_scope s)))
     | END -> 
       let () = print_endline "end" in
-      current_scope :=  Scope ( get_global_scope_as_scope ())
+      current_con :=  Scope ( get_global_scope_as_scope ())
     | _ -> ()
     ) insns
 
 let print_basic_block_name bb =
   let name = Llvm.value_name bb in
   print_endline ("Basic block name: " ^ name)
-  
+
 let print_basic_blocks func =
   Llvm.fold_left_blocks (fun () bb -> print_basic_block_name @@ Llvm.value_of_block bb) () func
   
@@ -552,7 +662,7 @@ let build_one (insn : SM.insn) =
       (match desig with
       | Global s  -> failwiths "globals load not implemented"
       | Local i   -> add_variable (pop_variable ()) 
-      | Arg i     -> add_variable (pop_variable ()) 
+      | Arg i     -> () 
       | Access i  -> failwiths "access load not implemented"
       | Fun s     -> failwiths "function load not implemented"
       )
@@ -568,17 +678,24 @@ let build_one (insn : SM.insn) =
       (* handle array/string/sexp element *)
       print_endline ">>> Element";
       print_endline "Not implemented\n"
-  | LABEL s -> 
-    print_endline (">>> Label: " ^ s);
-    if ((to_common !current_scope) # is_global ) then () else
+  | FLABEL s | LABEL s -> 
+    print_endline (">>> (F)Label: " ^ s);
+    if ((to_common !current_con) # is_global ) then () else
       let block = find_label s in
       Llvm.position_at_end block builder
-  | FLABEL s | SLABEL s ->
-    print_endline (">>> Forwarded or scope label: " ^ s);
-    if ((to_common !current_scope) # is_global ) then () else
-      let block = find_label s in
-      Llvm.position_at_end block builder
-  | JMP s ->
+  |  SLABEL s ->
+    print_endline (">>> scope label: " ^ s);
+    let () = print_endline @@ ">>> scope label " ^ s in
+    if ((to_common !current_con)#has_label s) then (
+      (match  !current_con with
+      | Scope x -> if (s == x#get_elab) then (
+        ignore @@ Llvm.build_ret ((pop_variable ())#get_value) builder;  
+        go_up ())
+       else (
+        current_con := Scope ( (to_common !current_con)#get_scope s )
+      )
+      | Function x -> current_con  := Scope (x#get_scope s)))
+    | JMP s ->
     let () = print_endline (">>> Unconditional jump: " ^ s) in
     let block = find_label s in 
     ignore @@ Llvm.build_br block builder 
@@ -598,14 +715,15 @@ let build_one (insn : SM.insn) =
       )
   | BEGIN (name, _, _, _, _, _) ->
     print_endline @@ "BEGIN" ^ name ; 
-    clean_stack ();
-    let func = LL.lookup_func_exn name in
-    let entry = Llvm.entry_block func in 
+    (* clean_stack (); *)
+    let llvm_func = LL.lookup_func_exn name in
+    let entry = Llvm.entry_block llvm_func in 
     Llvm.position_at_end entry builder;
-
-    current_scope := Function ((current_function ())#find_function name)
+    let func =  (to_common !current_con)#find_function name in
+    (* print_function_class func; *)
+    current_con := Function func
   | END ->
-    current_scope := Scope (get_global_scope_as_scope ());
+    current_con := Scope (get_global_scope_as_scope ());
       (* handle end procedure definition *)
       print_endline ">>> End procedure definition";
   | CLOSURE (name, args) ->
