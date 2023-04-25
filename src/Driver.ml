@@ -183,7 +183,7 @@ class options args =
          Pprinter.pp Format.std_formatter ast
 
     method dump_SM sm =
-      if !dump land dump_sm > 0 then self#dump_file "sm" (SM.show_prg sm)
+      if !dump land dump_sm > 0 then (print_endline (SM.show_prg sm); self#dump_file "sm" (SM.show_prg sm))
       else ()
 
     method greet =
@@ -251,7 +251,8 @@ let main =
           LLVMIR.build cmd prog;
           exit 1
       | `LLVM_SM ->
-          LLVMIRSM.build (SM.compile cmd prog) ;
+          let insns  = SM.compile cmd prog in
+          LLVMIRSM.build insns;
           exit 1 
           )
     | `Fail er ->
