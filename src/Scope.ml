@@ -1,10 +1,37 @@
-type state = 
-  | None
-  | FUNCTION_DEFINTION
-  
-type scope = SM.scope
+  type scope = SM.scope
+let context = Llvm.global_context ()
+let i64_type = Llvm.i64_type context
+let i32_type = Llvm.i32_type context
+let lama_int_type = i32_type
+let lama_ptr_type = Llvm.pointer_type lama_int_type
+let () =
+  Llvm.enable_pretty_stacktrace ()
+
+type prog =
+  (string list
+  * ([ `Lefta | `Nona | `Righta ]
+    * string
+    * [ `After of string | `At of string | `Before of string ])
+    list)
+  * Language.Expr.t
+
+let scope_stack = [] 
+let waiting_labels : string list ref = ref [] 
+let latest_line_info = ref ""
+let builder = Llvm.builder context
+
+
+
+(* let integer_type = Llvm.double_type context *)
+let () = assert (Llvm_executionengine.initialize ())
+let main_module = Llvm.create_module context "main"
+let the_execution_engine = Llvm_executionengine.create main_module
+let the_fpm = Llvm.PassManager.create_function main_module
+
+module LL = (val LL.make builder context main_module)
 
 module BlockMap = Map.Make(String)
+module LocalsMap = Map.Make(Int)
 
 let rec print_names = function
 | [] -> ()
@@ -20,154 +47,51 @@ let rec print_scope (scope:scope) =
   List.iter print_scope scope.subs
 
   type variable_type = 
-  | Local
-  | Global
-  | Function 
-  | Arg 
-  | Label
-
-
-class variable_class (name : string) (value : Llvm.llvalue) (variable_type : variable_type) (parent: Llvm.llvalue) = 
-  object
-    method get_name = name
-    method get_type = variable_type
-    method get_value = value  
-    method get_parent = parent
-  end
+  | Ptr of Llvm.llvalue
+  | Value of Llvm.llvalue
 
 type namespace_type = 
   | Scope
   | Function
-  | None
+  | Global
 
 type scope_t =
   | Global
   | Local
 
-class type common_class_t = object
-  val mutable functions_map : function_class_t BlockMap.t
-  val mutable inner_scopes : scope_class_t BlockMap.t
-  val mutable labels_map : Llvm.llbasicblock BlockMap.t
-  val mutable locals_map : variable_class BlockMap.t
-  val mutable stack : variable_class list
-  method add_function : function_class_t -> unit
-  method add_label : Llvm.llbasicblock -> string -> unit
-  method add_scope : scope_class_t -> unit
-  method add_to_stack : variable_class -> unit
-  method add_variable : variable_class -> unit
-  method drop_from_stack : unit
-  method find_function : string -> function_class_t
-  method get_all_functions : function_class_t BlockMap.t
-  method get_all_labels : Llvm.llbasicblock BlockMap.t
-  method get_all_locals : variable_class BlockMap.t
-  method get_all_scopes : scope_class_t BlockMap.t
-  method get_from_stack : variable_class
-  method get_label : string -> Llvm.llbasicblock
-  method get_parent : parent_class_t
-  method get_scope : string -> scope_class_t
-  method get_variable : string -> variable_class
-  method has_label : string -> bool
-  method has_scope : string -> bool
-  method has_variable : string -> bool
-  method is_function : bool
-  method is_global : bool
-  method is_scope : bool
-  method set_inner_scopes : scope_class_t list -> unit
-  method shove_up : unit
-end
-and scope_class_t = object
-  method get_blab : string
-  method get_elab : string
-  val mutable functions_map : function_class_t BlockMap.t
-  val mutable inner_scopes : scope_class_t BlockMap.t
-  val mutable labels_map : Llvm.llbasicblock BlockMap.t
-  val mutable locals_map : variable_class BlockMap.t
-  method add_label : Llvm.llbasicblock -> string -> unit
-  method add_variable : variable_class -> unit
-  method add_function : function_class_t -> unit
-  method add_scope : scope_class_t -> unit
-  method add_function : function_class_t -> unit
-  method get_all_functions : function_class_t BlockMap.t
-  method get_all_labels :  Llvm.llbasicblock BlockMap.t
-  method get_all_locals :  variable_class BlockMap.t
-  method get_all_scopes : scope_class_t BlockMap.t
-  method get_label : string -> Llvm.llbasicblock
-  method get_scope : string -> scope_class_t
-  method get_parent : parent_class_t
-  method get_variable : string -> variable_class
-  method has_label : string -> bool
-  method has_scope : string -> bool
-  method has_variable : string -> bool
-  method is_function : bool
-  method is_global : bool
-  method is_scope : bool
-  method set_inner_scopes : scope_class_t list -> unit 
-  method find_function : string -> function_class_t
-end
-and function_class_t = object 
-  val mutable blab : string
-  val mutable elab : string
-  val mutable finished : bool
-  val mutable functions_map : function_class_t BlockMap.t
-  val mutable inner_scopes : scope_class_t BlockMap.t
-  val mutable labels_map : Llvm.llbasicblock BlockMap.t
-  val mutable locals_map : variable_class BlockMap.t
-  val mutable started : bool
-  val mutable hard_stack : variable_class list
-  val mutable free_ptr : variable_class list
-  val mutable hrdst_builder : Llvm.llvalue
-  method set_hrdst_builder : Llvm.llvalue -> unit
-  method add_to_hrdst : variable_class -> unit
-  method add_function : function_class_t -> unit
-  method add_label : Llvm.llbasicblock -> string -> unit
-  method add_scope : scope_class_t -> unit
-  method add_variable : variable_class -> unit
-  method find_function : string -> function_class_t
-  method finish : unit
-  method get_all_functions : function_class_t BlockMap.t
-  method get_all_labels : Llvm.llbasicblock BlockMap.t
-  method get_all_locals : variable_class BlockMap.t
-  method get_all_scopes : scope_class_t BlockMap.t
-  method get_function : Llvm.llvalue
-  method get_label : string -> Llvm.llbasicblock
-  method get_name : string
-  method get_parent : parent_class_t
-  method get_scope : string -> scope_class_t
-  method get_variable : string -> variable_class
-  method get_blab : string
-  method get_elab : string
-  method has_label : string -> bool
-  method has_scope : string -> bool
-  method has_variable : string -> bool
-  method is_finished : bool
-  method is_function : bool
-  method is_global : bool
-  method is_scope : bool
-  method is_started : bool
-  method set_blab : string -> unit
-  method set_elab : string -> unit
-  method set_inner_scopes : scope_class_t list -> unit
-  method start : unit
-  method reset : unit
-end 
-and parent_class_t = object
-  method get_common_class : common_class_t
-  method get_function : function_class_t
-  method get_parent_class : namespace_type
-  method get_scope : scope_class_t
- end
+let counter = ref 1
 
-class common_class (parent : parent_class option) ?(scope_t= Local) (t : namespace_type) : common_class_t  = 
+
+let create_entry_block_alloca var_name func =
+  let builder =
+    Llvm.builder_at context (Llvm.instr_begin (Llvm.entry_block func))
+  in
+  Llvm.build_alloca lama_int_type var_name builder
+
+let get_name () = 
+  let () = counter := !counter + 1 in 
+  string_of_int @@ !counter - 1
+  
+class global_c = object
+  val mutable functions = BlockMap.empty
+  method add_function (func : function_c) = 
+    functions <- BlockMap.add func#get_name func functions
+  method has_function (name : string) = 
+    BlockMap.mem name functions
+  method get_function (name : string) = 
+    BlockMap.find name functions
+  method get_all_functions = functions
+      
+end
+and variable_c  (value : variable_type)  (parent: parent_c)  = 
+object
+  method get_value = value  
+  method get_parent = parent
+end and common_c (parent : parent_c) ?(scope_t= Local) (t : namespace_type)  = 
 object (self)
-  method get_parent = 
-    match parent with
-    | None -> failwith "No parent"
-    | Some x -> x
-  val mutable inner_scopes : scope_class_t BlockMap.t = BlockMap.empty 
-  val mutable functions_map : function_class_t BlockMap.t = BlockMap.empty  
-  val mutable locals_map =  BlockMap.empty
+
   val mutable labels_map = BlockMap.empty
-  val mutable stack : variable_class list = []
+  val mutable inner_scopes : scope_c BlockMap.t = BlockMap.empty 
   method is_scope : bool =
     match t with 
     | Scope -> true
@@ -179,105 +103,166 @@ object (self)
     | Function -> true
     | _ -> failwith "common class without a type"
 
-  method set_inner_scopes (array : scope_class_t list)  = 
+  method set_inner_scopes (array : scope_c list)  = 
     List.iter (function x -> self#add_scope x) array 
- 
-  method is_global = 
-    match scope_t with 
-    | Global -> true
-    | Local -> false
-
-    method add_scope (scope : scope_class_t) = 
-      inner_scopes <- BlockMap.add scope#get_blab scope inner_scopes
-    method add_function (func : function_class_t) = 
-      functions_map <- BlockMap.add func#get_name func functions_map
-    method add_variable (var : variable_class) = 
-        locals_map <- BlockMap.add var#get_name var locals_map
-    method add_label (var: Llvm.llbasicblock) (name:string) =
-        labels_map <- BlockMap.add name var labels_map
-      
-    method get_all_labels = labels_map
-    method get_all_locals = locals_map
-    method get_all_scopes = inner_scopes
-    method get_all_functions = functions_map
-
-    method has_variable (name : string) = 
-      BlockMap.mem name locals_map  
-    method has_label (name : string) = 
-      BlockMap.mem name labels_map
-    method has_scope (name: string) = 
-        BlockMap.mem name inner_scopes
-        
-    method get_variable (name : string) = 
-      BlockMap.find name locals_map
-    method get_label (name : string) = 
-      BlockMap.find name labels_map 
-    method get_scope (blab : string) = 
-        BlockMap.find blab inner_scopes 
   
-    method find_function (name : string) = 
-      BlockMap.find name functions_map 
-
-    method add_to_stack (value : variable_class) = 
-      stack <- value :: stack
-
-    method get_from_stack = 
-      match stack with 
-      | hd :: tl -> hd
-      | [] -> failwith "No values on stack"
+  method get_parent = parent
+  method add_scope (scope : scope_c) =
+    print_endline @@ "adding blab " ^ scope#get_blab; 
+    inner_scopes <- BlockMap.add scope#get_blab scope inner_scopes
+  method add_label (var: Llvm.llbasicblock) (name:string) =
+      labels_map <- BlockMap.add name var labels_map
     
-    method drop_from_stack =
-      match stack with 
-      | hd :: tl -> (stack <- tl)
-      | [] -> failwith "No values on stack"
-    
-    method shove_up = 
-      let shove_up_one v = 
-       
+  method get_all_labels = labels_map
+  method get_all_scopes = inner_scopes
+  method has_label (name : string) = 
+    BlockMap.mem name labels_map
+
+  method has_scope (name: string) = 
+      BlockMap.mem name inner_scopes
+      
+  method get_label (name : string) = 
+    BlockMap.find name labels_map 
+  method get_scope (blab : string) = 
+      BlockMap.find blab inner_scopes 
 
 end 
 and
-scope_class  (s : scope) ?(scope_t= Local) (parent : parent_class option) : scope_class_t =
+scope_c  (s : scope) ?(scope_t= Local) (parent : parent_c) =
 object (self)
-  inherit common_class parent Scope ~scope_t:scope_t
+  inherit common_c parent Scope ~scope_t:scope_t
+
+  val mutable locals_ptr_map =  LocalsMap.empty
+  val mutable locals_map = LocalsMap.empty
+  val mutable stack : variable_c list = []
+  
+  method get_all_locals = locals_map
+
+  method has_local (number : int) = 
+    LocalsMap.mem number locals_ptr_map  
+
+  method add_local (num : int )(var : Llvm.llvalue) = 
+    locals_ptr_map <- LocalsMap.add num var locals_ptr_map
+
+  method get_local (name : int) = 
+    if (LocalsMap.mem name locals_map) then LocalsMap.find name locals_map 
+    else Llvm.build_load (LocalsMap.find name locals_ptr_map)  (get_name ()) builder
+
+  method store_local (value : Llvm.llvalue) (num : int) : unit = 
+    ignore @@ Llvm.build_store value (LocalsMap.find num locals_ptr_map) builder;
+    if (LocalsMap.mem num locals_map) then 
+      locals_map <- LocalsMap.remove num locals_map 
+    else ()
+
+  method add_to_stack (value : variable_c) = 
+    stack <- value :: stack
+
+  method get_from_stack = 
+    match stack with 
+    | hd :: tl -> 
+      stack <- tl;
+      (match hd#get_value with 
+      |Ptr x -> 
+        Llvm.build_load x (get_name ()) builder 
+      | Value x -> x
+      )
+    | [] -> failwith "No values on stack to get"
+  
+  method get_from_stack_without_cast = 
+    match stack with 
+    | hd :: tl -> 
+      stack <- tl;
+      hd
+    | [] -> failwith "No values on stack to get"
+    
+  method drop_from_stack =
+    match stack with 
+    | hd :: tl -> (stack <- tl)
+    | [] -> failwith "No values on stack to drop"
+
+  method is_empty : bool =
+    match stack with 
+    | [] -> true
+    | _ -> false
+       
+  method dup =
+    match stack with 
+    | hd :: tl -> (stack <- hd::hd::tl)
+    | [] -> failwith "No values on stack to dup"
+  
+  method swap = 
+    match stack with 
+    | hd:: mid :: tl -> stack <- mid :: hd :: tl
+    | _ -> failwith "Not enough values in stack to swap"
+
   method get_elab = s.elab 
   method get_blab = s.blab
 end 
-and function_class (name:string) (parent : parent_class option) (func : Llvm.llvalue) : function_class_t = object (self)
-  inherit common_class parent Function 
-  val mutable blab : string  = ""
-  val mutable elab : string  = ""
-  val mutable started = false
-  val mutable finished = false
+and function_c (name:string) (parent : parent_c) (func : Llvm.llvalue) = object (self)
+  inherit common_c parent Function 
+  val mutable free_ptr : Llvm.llvalue list = []
+  val mutable ptr_stack : Llvm.llvalue list = []
   method get_name = name
   method get_function = func
-  method is_started = started
-  method set_blab s = 
-    blab <- s
-  method set_elab s = 
-    elab <- s 
-  method start = 
-    started <- true
-  method is_finished =
-    finished == true 
-  method finish = 
-    finished <- true 
-  method get_elab = elab
-  method get_blab = blab
-  method reset = 
-    started <- false;
-    finished <- false
+
+  method get_free_ptr = 
+    print_endline "get_free_ptr called";
+    match free_ptr with 
+    hd :: tl -> 
+      free_ptr <- tl;
+      ptr_stack <- hd :: ptr_stack;
+      hd
+    | [] -> 
+      let alloca = create_entry_block_alloca (get_name()) func in
+      ptr_stack <- alloca :: ptr_stack;
+      alloca
+
+  method get_taken_ptr = 
+    print_endline "get_taken_ptr called";
+    match ptr_stack with 
+      | hd :: _ ->
+        self#drop;
+        hd
+      | [] -> failwith "No values on ptr stack (get)"
+  method drop_ptr = 
+    print_endline "drop_ptr_called";
+    match ptr_stack with 
+    | hd :: tl -> 
+      ptr_stack <- tl;
+      free_ptr <- hd :: free_ptr
+    | [] -> failwith "No values on ptr stack (drop)"
+
+  method load (value : Llvm.llvalue) builder= 
+    Llvm.build_store value (self#get_free_ptr) builder
+  
+  
+  method drop = 
+    match ptr_stack with
+    | hd::tl -> 
+      ptr_stack <- tl;
+      free_ptr <- hd :: free_ptr
+    | [] -> failwith "No values on ptr stack (drop)"
+  method dup = 
+    match ptr_stack with
+    | hd::tl -> 
+      ptr_stack <- hd :: ptr_stack;
+    | [] -> failwith "No values on ptr stack (dup)"
+  method swap = 
+    match ptr_stack with
+    | hd::tl -> 
+      ptr_stack <- hd :: ptr_stack;
+    | [] -> failwith "No values on ptr stack (dup)"
 end 
 
-and parent_class (x : function_class option) (y : scope_class option) : parent_class_t = 
+and parent_c (x : function_c option) (y : scope_c option) = 
 object 
-  method get_parent_class = 
+  method get_parent_c = 
     match x with
     | Some func -> Function 
     | None -> 
       (match y with 
       | Some scope -> Scope
-      | None -> None)
+      | None -> Global)
   method get_function = 
     match x with
     | Some x -> x
@@ -286,164 +271,207 @@ object
     match y with 
     | Some y -> y
     | None -> failwith "Parent class is not a scope"
-  method get_common_class : common_class =
-    match x with
-    | Some func -> (func :> common_class_t)
-    | None ->   (match y with 
-    | Some scope -> (scope :> common_class_t)
-    | None -> failwith "No type in parent class")
   end
-let global_scope : scope = {
-  blab = "___start";
-  elab = "___end";
-  names = [];
-  subs = [];
-}
 
-let create_function_parent_class (func : function_class) = new parent_class (Some func) None 
-let create_scope_parent_class (scope : scope_class) = new parent_class None (Some scope) 
+let global_scope = new global_c 
+
+let create_function_parent (func : function_c) = new parent_c (Some func) None 
+let create_scope_parent (scope : scope_c) = new parent_c None (Some scope) 
+let create_global_parent () = new parent_c None None
 
 type container_t = 
-  | Scope of scope_class
-  | Function of function_class
+  | Scope of scope_c
+  | Function of function_c
+  | Global of global_c
 
-let parent_class_to_contatiner (p : parent_class) = 
-  match p#get_parent_class with
+let parent_to_con (p : parent_c) = 
+  match p#get_parent_c with
   | Scope -> Scope p#get_scope
   | Function -> Function p#get_function
-  | None -> failwith "No parent class"
+  | Global -> Global global_scope
 
-let get_global_scope (con: common_class) = 
-  let rec go_up scope = 
-    if (scope#is_global) then scope else go_up @@ (scope#get_parent#get_common_class)
-  in go_up (con)
-
-let to_common (con : container_t) = 
-  match con with 
-  Scope x -> (x :> common_class_t) | 
-  Function x -> (x :> common_class_t)
-
-let add_variable (var: variable_class) (con : container_t)=
+(* let add_variable (var: variable_c) (con : container_t) =
   match var#get_type with
   | Local | Arg -> (match con with 
   Scope x -> x#add_variable var | Function x -> x#add_variable var)
   | Global ->
       (get_global_scope (to_common con))#add_variable var
   | _ -> ()
+ *)
 
 
-let get_parent (s : common_class) = s#get_parent
-let global_scope = new scope_class global_scope None ~scope_t:Global 
+let current_con = ref @@ Global global_scope
 
-let rec create_scope (s : scope) (parent:parent_class option) = 
-  let sclass = new scope_class s parent in 
-  let array = ref [] in
-  let parent_self = create_scope_parent_class sclass in
-  List.iter (function x -> array := (create_scope x @@ Some parent_self) :: !array) s.subs;
-  sclass#set_inner_scopes !array;
-  sclass
-
-let create_function (name : string) (parent : parent_class option) (func : Llvm.llvalue) (s : scope list) =
-  let sclass = new function_class  name parent func in 
-  let array = ref [] in
-  let parent_self = create_function_parent_class sclass in
-  List.iter (function x -> array := (create_scope x @@ Some parent_self) :: !array) s;
-  sclass#set_inner_scopes !array;
-  sclass
-  
-let current_con = ref @@ Scope global_scope 
 let current_function () = 
-  let rec go_up (con : container_t) : function_class= 
+  let rec go_up (con : container_t) : function_c= 
     match con with 
     | Function x -> x 
     | Scope x -> (
-      match x#get_parent#get_parent_class with 
+      match x#get_parent#get_parent_c with 
       | Scope -> go_up @@ Scope x#get_parent#get_scope 
       | Function -> x#get_parent#get_function
-      | None -> failwith "Not in function"
-    ) in 
+      | Global  -> failwith "Not in function"
+    )
+    | Global _ -> failwith "Came to global while looking for function"
+   in 
     go_up !current_con
 
-let go_up () = 
-  let common = to_common !current_con in
-  let parent = common#get_parent in
-  match parent#get_parent_class with 
-    | Scope -> current_con := Scope parent#get_scope
-    | Function -> current_con := Function parent#get_function
-    | None -> failwith "No parent"
+let rec create_scope (s : scope) (parent:parent_c) (func) = 
+  let sclass = new scope_c s parent in 
+  let array = ref [] in
+  List.iter (function (x, y) -> sclass#add_local y @@
+    create_entry_block_alloca (get_name ()) func) s.names;
+  let parent_self = create_scope_parent sclass in
+  List.iter (function x -> array := (create_scope x parent_self func) :: !array) s.subs;
+  sclass#set_inner_scopes !array;
+  sclass
+    
+let create_function (name : string) (parent : parent_c) (func : Llvm.llvalue) (s : scope list) =
+  let sclass = new function_c  name parent func in 
+  let array = ref [] in
+  let parent_self = create_function_parent sclass in
+  List.iter (function x -> array := (create_scope x parent_self func) :: !array) s;
+  sclass#set_inner_scopes !array;
+  sclass
+  
 
-let create_parent_class () = 
+
+let create_parent_c () = 
   match !current_con with 
-    | Scope x -> create_scope_parent_class x 
-    | Function y -> create_function_parent_class y
+    | Scope x -> create_scope_parent x 
+    | Function y -> create_function_parent y
+    | Global x -> create_global_parent ()
 
-    let find_label s =
-      let rec go_up (scope : common_class_t) s = 
-        match scope#has_label s with 
-        | true -> scope#get_label s 
-        | false -> go_up (scope#get_parent#get_common_class) s in
-      go_up (to_common !current_con) s
-    
-    let rec _find_variable variable_name (scope: common_class_t) = 
-      match scope#has_variable variable_name with 
-       | true -> scope#get_variable variable_name
-       | false -> _find_variable variable_name scope#get_parent#get_common_class 
-    
-    let is_in_function () = (to_common !current_con)#is_global 
-    
+let get_scope x scope = 
+  match x with 
+  | Global _ -> failwith "Looking for scope in global scope"
+  | Function x -> x#get_scope scope 
+  | Scope x -> x#get_scope scope
 
-let get_global_scope_as_scope () = 
-  let rec  matching (x : common_class) = 
-    (match x#get_parent#get_parent_class with 
-      | Scope ->  go_up @@ Scope x#get_parent#get_scope 
-      | Function ->  go_up @@ Function x#get_parent#get_function
-      | None -> failwith "Not in global function"
-    ) and
-    go_up (con : container_t) : scope_class = 
-      match con with 
-        | Function x ->  matching (x :> common_class) 
-        | Scope x -> if (x#is_global) then x else matching (x:>common_class) in 
-  go_up !current_con
+let as_scope x msg= 
+  match x with 
+  | Scope x -> x 
+  | Function _ -> failwith @@ "Trying to cast function to scope in " ^ msg
+  | Global _  -> failwith @@ "Trying to cast global to scope in " ^ msg
 
-let rec print_common_class (com : common_class) = 
+let as_function x msg = 
+  match x with 
+  | Scope _ -> failwith @@ "Trying to cast scope to function in " ^ msg
+  | Function x -> x
+  | Global _  -> failwith @@ "Trying to cast global to function in " ^ msg
+
+
+let as_global x msg = 
+  match x with 
+  | Scope _ -> failwith @@ "Trying to cast scope to global in " ^ msg
+  | Function _ -> failwith @@ "Trying to cast function to global in " ^ msg
+  | Global x  -> x 
+
+let find_label s =
+  let rec go_up scope s = 
+    match scope with 
+    | Function x -> failwith "Looking for a label in a function"
+    | Scope x -> 
+      (match x#has_label s with 
+        | true -> x#get_label s 
+        | false -> go_up (parent_to_con x#get_parent) s)
+    | Global _  -> failwith "Looking for a label in Global" in
+  go_up !current_con s
+    
+(* let rec _find_variable variable_name (scope: scope_c) = 
+  match scope#has_variable variable_name with 
+    | true -> scope#get_variable variable_name
+    | false ->  let parent = scope#get_parent in 
+                _find_variable variable_name (match parent#get_parent_c with 
+                                              | Scope -> parent#get_scope 
+                                              | Function -> failwith "Can not find variable"
+                                              | Global -> failwith "This message should not exist")  *)
+
+let is_in_function () = 
+  match !current_con with
+  | Global _ -> true
+  | _ -> false
+
+let rec print_function_c (func : function_c) =
+    print_endline @@ "function: " ^ func#get_name;
+    BlockMap.iter (function _ -> function value ->  print_scope_c value) func#get_all_scopes;
+and
+  print_scope_c (scope : scope_c) =
   let print_key key _ = 
     print_endline key in
-  print_endline "Variables: ";
-  BlockMap.iter print_key com#get_all_locals;
+  (* print_endline "Variables: ";
+  BlockMap.iter print_key scope#get_all_locals; *)
+  print_string "Scope \nblab:/";
+  print_endline @@ scope#get_blab ^ "/";
+  print_string "elab:";
+  print_endline scope#get_elab;
   print_endline "Labels: ";
-  BlockMap.iter print_key com#get_all_labels;
-  print_endline "Functions: ";
-  BlockMap.iter (function _ -> function value ->  print_function_class value) com#get_all_functions;
+  BlockMap.iter print_key scope#get_all_labels;
   print_endline "Scopes: ";
-  BlockMap.iter (function _ -> function value ->  print_scope_class value) com#get_all_scopes;
+  BlockMap.iter (function _ -> function value ->  print_scope_c value) scope#get_all_scopes;
+ 
 and
-  print_function_class (func : function_class) =
-    print_endline @@ "function: " ^ func#get_name;
-    print_common_class (func :> common_class)
-and
-  print_scope_class (scope : scope_class) =
-    print_string "Scope \nelab:";
-    print_endline scope#get_elab;
-    print_string "blab:";
-    print_endline scope#get_blab;
-    print_common_class (scope :> common_class)
-and
-  print_global_scope () = print_scope_class @@ get_global_scope_as_scope ()
+  print_global_scope () = BlockMap.iter (function _ -> function value -> print_function_c value ) global_scope#get_all_functions
 
-    let find_variable variable_name =
-      let scope = !current_con  in
-      _find_variable variable_name @@ to_common scope
-     
-    let rec current_elab (con : container_t) = 
-      match con with
-      | Scope x -> x#get_elab
-      | Function x -> current_elab @@ parent_class_to_contatiner x#get_parent
-    
-let rec reset_functions con = 
-  match con with 
-    | Scope s ->  BlockMap.iter (function _ -> function value ->  reset_functions @@ Scope value) s#get_all_scopes;
-                  BlockMap.iter (function _ -> function value ->  reset_functions @@ Function value) s#get_all_functions
-    | Function f ->
-                  f#reset; 
-                  BlockMap.iter (function _ -> function value ->  reset_functions @@ Scope value) f#get_all_scopes;
-                  BlockMap.iter (function _ -> function value ->  reset_functions @@ Function value) f#get_all_functions
+    (* called only on scopes *)
+let go_up () = 
+  let scope = (as_scope !current_con "Scope/go_up") in
+  let as_value value = 
+    match value with 
+      | Ptr _ -> failwith "casting Ptr to Value"
+      | Value x -> x in 
+  let parent = scope#get_parent in
+                (match parent#get_parent_c with 
+                  | Scope -> 
+                    let parent_scope = parent#get_scope in
+                    let values = ref [] in
+                    while (not scope#is_empty) do
+                      let value = ref scope#get_from_stack_without_cast in
+                      (match !value#get_value with 
+                      Value x ->
+                      if (!value#get_parent#get_scope#get_elab = scope#get_elab) then
+                        let ptr = Llvm.build_store (as_value !value#get_value) ((current_function ())#get_free_ptr) builder in
+                        value := new variable_c (Ptr ptr) (create_function_parent (current_function ()))                    
+                      | Ptr _ -> ());
+                      values := !value :: !values
+                    done;
+                    (* if (List.length !values > 1) then failwith "More than 1 value in closing scope stack"; *)
+                    current_con := Scope parent_scope;
+                    List.iter (function x ->  parent_scope#add_to_stack x) !values
+                  | Function -> 
+                    let parent_function = parent#get_function in
+                    let values = ref [] in
+                    while (not scope#is_empty) do
+                      let value = ref scope#get_from_stack_without_cast in
+                      (match !value#get_value with
+                      | Ptr x -> ()
+                      | Value x -> 
+                        if not ( !value#get_parent#get_scope#get_elab = (as_scope !current_con "Scope/go_up")#get_elab) then 
+                          failwith "Value in last scope, whose parent is not this scope"
+                        else 
+                          let ptr = Llvm.build_store (as_value !value#get_value) ((current_function ())#get_free_ptr) builder in
+                          value := new variable_c (Ptr ptr) (create_function_parent (current_function ())));
+                          values := !value :: !values   
+                    done;
+                    if (List.length !values < 1) then failwith "No values in function scope stack";
+                    current_con := Function parent_function
+                  | Global -> current_con := Global global_scope)
+  
+
+let find_local name =
+  let rec _find_local name con = 
+  let scope = (as_scope con "Scope/find_local") in
+  if scope#has_local name then 
+    scope#get_local name 
+  else 
+    _find_local name (parent_to_con scope#get_parent) in 
+  _find_local name !current_con
+
+let rec current_elab (con : container_t) = 
+  match con with
+  | Scope x -> x#get_elab
+  | Function _ -> failwith "Not in scope"
+  | Global _  -> failwith "Not in scope"
+
+let store_local num value = 
+  (as_scope !current_con "Scope/ store_local")#store_local num value
