@@ -5,7 +5,7 @@
 
 (library
  (name liba)
- (modules CConv Language Pprinter stdpath version X86 SM LL LLVMIR LLVMIRSM Scope)
+ (modules CConv Language Pprinter stdpath version X86 SM LL LLVMIR LLVMIRSM Scope Match)
  (libraries
   GT
   ostap
@@ -38,6 +38,7 @@
     LLVMIR
     LLVMIRSM 
     Scope
+    Match
     )))
  (preprocessor_deps
   (file %{project_root}/src/pp5+gt+plugins+ostap+dump.byte))

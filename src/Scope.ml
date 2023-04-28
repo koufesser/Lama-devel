@@ -46,9 +46,14 @@ let rec print_scope (scope:scope) =
   print_names scope.names;
   List.iter print_scope scope.subs
 
-  type variable_type = 
+type variable_type = 
   | Ptr of Llvm.llvalue
   | Value of Llvm.llvalue
+
+let print_variable_type (var_t :variable_type) = 
+  match var_t with 
+  | Ptr x -> print_endline @@ "Ptr " ^ Llvm.value_name x
+  | Value x -> print_endline @@ "Value " ^ Llvm.value_name x
 
 type namespace_type = 
   | Scope
@@ -135,12 +140,28 @@ object (self)
   val mutable locals_ptr_map =  LocalsMap.empty
   val mutable locals_map = LocalsMap.empty
   val mutable stack : variable_c list = []
-  
+  val mutable if_scope = false
+  val mutable stack_set = false
+  val mutable return_ptr : variable_c option = None
   method get_all_locals = locals_map
 
   method has_local (number : int) = 
     LocalsMap.mem number locals_ptr_map  
-
+  method set_return_ptr ptr = 
+    return_ptr <- ptr
+  method get_return_ptr = 
+    match return_ptr 
+  with 
+  None -> failwith " "
+  | Some  x -> x 
+  method is_return_ptr_set = return_ptr = None
+  method is_stack_set =
+    stack_set
+  method set_stack = 
+    stack_set <- true
+  method set_if =
+    if_scope <- true
+  method is_if = if_scope
   method add_local (num : int )(var : Llvm.llvalue) = 
     locals_ptr_map <- LocalsMap.add num var locals_ptr_map
 
@@ -157,6 +178,20 @@ object (self)
   method add_to_stack (value : variable_c) = 
     stack <- value :: stack
 
+  method print_stack =
+    let rec print_stack_ stack =
+    match stack with 
+    | hd :: tl -> print_variable_type hd#get_value 
+     | [] -> () 
+    in 
+    print_endline @@ "Stack of " ^ s.blab;
+    print_stack_ stack
+  
+  method front  = 
+    match stack with 
+    | hd :: tl -> hd 
+     | [] -> failwith "No values on stack for front"
+  
   method get_from_stack = 
     match stack with 
     | hd :: tl -> 
@@ -315,24 +350,6 @@ let current_function () =
     | Global _ -> failwith "Came to global while looking for function"
    in 
     go_up !current_con
-
-let rec create_scope (s : scope) (parent:parent_c) (func) = 
-  let sclass = new scope_c s parent in 
-  let array = ref [] in
-  List.iter (function (x, y) -> sclass#add_local y @@
-    create_entry_block_alloca (get_name ()) func) s.names;
-  let parent_self = create_scope_parent sclass in
-  List.iter (function x -> array := (create_scope x parent_self func) :: !array) s.subs;
-  sclass#set_inner_scopes !array;
-  sclass
-    
-let create_function (name : string) (parent : parent_c) (func : Llvm.llvalue) (s : scope list) =
-  let sclass = new function_c  name parent func in 
-  let array = ref [] in
-  let parent_self = create_function_parent sclass in
-  List.iter (function x -> array := (create_scope x parent_self func) :: !array) s;
-  sclass#set_inner_scopes !array;
-  sclass
   
 
 
@@ -403,6 +420,7 @@ and
   BlockMap.iter print_key scope#get_all_locals; *)
   print_string "Scope \nblab:/";
   print_endline @@ scope#get_blab ^ "/";
+  print_endline @@ "Scope is if: " ^ string_of_bool scope#is_if; 
   print_string "elab:";
   print_endline scope#get_elab;
   print_endline "Labels: ";
@@ -435,9 +453,22 @@ let go_up () =
                       | Ptr _ -> ());
                       values := !value :: !values
                     done;
-                    (* if (List.length !values > 1) then failwith "More than 1 value in closing scope stack"; *)
+(* 
+                    if (List.length !values > 1) then ( 
+                      List.iter (function x -> print_variable_type x#get_value) !values;
+                      failwith "More than 1 value in closing scope stack"); *)
                     current_con := Scope parent_scope;
+                    if not (parent_scope#is_if) then 
                     List.iter (function x ->  parent_scope#add_to_stack x) !values
+                    else 
+                      (values := List.rev !values;
+                      match (List.hd !values)#get_value with 
+                      Ptr x -> 
+                      let value =   (match parent_scope#get_return_ptr#get_value with 
+                      | Ptr x -> Llvm.build_load x (get_name ()) builder
+                      | Value x -> x  ) in
+                      ignore @@ Llvm.build_store  x  value builder
+                      | Value _ -> failwith "Not a ptr in stack in in scope") 
                   | Function -> 
                     let parent_function = parent#get_function in
                     let values = ref [] in

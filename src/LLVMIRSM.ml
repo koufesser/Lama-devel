@@ -1,5 +1,37 @@
 open Scope
 
+let subprg blab elab prg = 
+  let rec cut_out (prg : SM.prg) = 
+    match prg with
+    | hd::tl -> if hd = SLABEL blab then tl else cut_out tl
+    | [] -> failwith "Can not found blab in program" in
+  let rec add (prg : SM.prg) ret = 
+    match prg with
+    | hd::tl -> if hd = SLABEL elab then ret else add tl (hd :: ret)
+    | [] -> failwith "Can not found elab in program" in
+    
+   let list = cut_out prg in 
+   List.rev  @@ add list []
+
+let rec create_scope (s : scope) (parent:parent_c) (func) prg= 
+  let sclass = new scope_c s parent in 
+  let array : scope_c list ref = ref [] in
+  List.iter (function (x, y) -> sclass#add_local y @@
+    create_entry_block_alloca (get_name ()) func) s.names;
+  let parent_self = create_scope_parent sclass in
+  List.iter (function x -> array := (create_scope x parent_self func prg) :: !array) s.subs;
+  sclass#set_inner_scopes !array;
+  (if (Match.match_if_pattern (subprg sclass#get_blab sclass#get_elab prg) sclass) then 
+    sclass#set_if);
+  sclass
+    
+let create_function (name : string) (parent : parent_c) (func : Llvm.llvalue) (s : scope list) prg =
+  let sclass = new function_c  name parent func in 
+  let array = ref [] in
+  let parent_self = create_function_parent sclass in
+  List.iter (function x -> array := (create_scope x parent_self func prg) :: !array) s;
+  sclass#set_inner_scopes !array;
+  sclass
 
 
 let () =
@@ -65,13 +97,11 @@ let show_desig (desig : Language.Value.designation) =
   let show_desig_list (desig : Language.Value.designation list) = 
     List.iter show_desig desig 
 
-  let print_module () = 
+let print_module () = 
   let () = print_endline "" in
   let () = print_endline "Variables stack:" in
   let () = print_endline "\n" in
   Llvm.dump_module main_module
-
-  (* fails if label not found *)
 
 
 let define_functions_and_labels (insns:SM.prg) = 
@@ -82,7 +112,7 @@ let define_functions_and_labels (insns:SM.prg) =
           counter := !counter + 1
       done;
        let () = print_endline ">>> begin" in
-      print_endline @@ "name: /" ^ name ^ "/ " ^ string_of_int nargs ^ " " ^ string_of_int nlocals ^ "\n args: ";
+      (* print_endline @@ "name: /" ^ name ^ "/ " ^ string_of_int nargs ^ " " ^ string_of_int nlocals ^ "\n args: "; *)
   (*List.iter (function x -> print_string x) args;
       print_endline "\n scopes: ";
       List.iter (function x -> print_scope x) scopes;
@@ -103,9 +133,9 @@ let define_functions_and_labels (insns:SM.prg) =
       elab = "L2";
       names = [];
       subs = []
-    }])
+    }] insns)
     else 
-      create_function name (create_global_parent ()) llvm_func scopes) in
+      create_function name (create_global_parent ()) llvm_func scopes insns) in
       (* print_function_class new_function; *)
       global_scope#add_function new_function;
       current_con := Function new_function;
@@ -190,7 +220,9 @@ let find_next_block () =
       else find a x (n+1) in
     find blocks x 0
 
-let build_one (insn : SM.insn) = 
+
+
+let build_one (insn : SM.insn) (prg : SM.prg) = 
   match insn with
   | BINOP op ->
     let () = print_endline (">>> Binary operator: " ^ op) in
@@ -238,7 +270,7 @@ let build_one (insn : SM.insn) =
       let llvm_function = current_function # get_function in
       assert_in_scope ();
       (match desig with
-      | Global s ->  push_variable @@ new variable_c (Ptr (Llvm.declare_global lama_int_type s main_module )) (create_parent()) 
+      | Global s ->  push_variable @@ new variable_c (Ptr (Llvm.declare_global lama_int_type s main_module )) (create_function_parent current_function) 
       | Local i -> push_variable @@ new variable_c (Value (find_local i)) (create_parent())
       | Arg i -> push_variable @@ new variable_c (Value (Llvm.param current_function#get_function i) ) (create_parent())   
       (* add to function values *)
@@ -297,6 +329,10 @@ let build_one (insn : SM.insn) =
           print_endline " end slabel"; go_up ())
         else (
           print_endline "start slabel";
+          if x#is_if && x#is_stack_set then (x#add_to_stack @@
+            new variable_c (Ptr ((current_function ())#get_free_ptr)) ((create_function_parent (current_function ())));
+            x#set_stack
+          );
           current_con := Scope (get_scope !current_con s)
         )
       | Function x -> 
@@ -325,13 +361,13 @@ let build_one (insn : SM.insn) =
       );
     Llvm.position_at_end after_bb builder
   | BEGIN (name, _, _, _, _, _) ->
-    print_endline @@ "BEGIN " ^ name ; 
+    (* print_endline @@ "BEGIN " ^ name ;  *)
     let llvm_func = LL.lookup_func_exn name in
     let entry = Llvm.entry_block llvm_func in 
     last_block := Some entry;
     Llvm.position_at_end entry builder;
     let func =  (as_global !current_con "build_one/begin")#get_function name in
-    (* print_function_class func; *)
+    print_function_c func;
     current_con := Function func
   | END ->
     let value = Llvm.build_load (as_function !current_con "LLVMIRSM/END")#get_taken_ptr (get_name ()) builder in
@@ -415,7 +451,7 @@ let build (insns:SM.prg) =
   let rec print_list = function
   | [] -> ()
   | h :: t ->
-    let () = build_one h in 
+    let () = build_one h insns in 
     print_list t
   in
   define_functions_and_labels insns;
