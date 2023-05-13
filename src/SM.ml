@@ -1,12 +1,10 @@
-[@@@ocaml.warning "-7-8-13-15-20-26-27-32"]
-
-open GT
+open GT       
 open Language
 
 (* The type for patters *)
 @type patt = StrCmp | String | Array | Sexp | Boxed | UnBoxed | Closure with show, enum
 
-(* The type for local scopes tree *)
+(* The type for local scopes tree *)                                                                           
 @type scope = {
     blab  : string;
     elab  : string;
@@ -27,7 +25,7 @@ let show_scope = show(scope);;
 (* store a value into a variable             *) | ST      of Value.designation
 (* store a value into a reference            *) | STI
 (* store a value into array/sexp/string      *) | STA
-(* takes an element of array/string/sexp     *) | ELEM
+(* takes an element of array/string/sexp     *) | ELEM                                                
 (* a label                                   *) | LABEL   of string
 (* a forwarded label                         *) | FLABEL  of string
 (* a scope label                             *) | SLABEL  of string
@@ -41,7 +39,7 @@ let show_scope = show(scope);;
 (* proto call                                *) | PCALLC  of int * bool
 (* calls a closure                           *) | CALLC   of int * bool
 (* calls a function/procedure                *) | CALL    of string * int * bool
-(* returns from a function                   *) | RET
+(* returns from a function                   *) | RET     
 (* drops the top element off                 *) | DROP
 (* duplicates the top element                *) | DUP
 (* swaps two top elements                    *) | SWAP
@@ -54,25 +52,25 @@ let show_scope = show(scope);;
 (* import clause                             *) | IMPORT  of string
 (* line info                                 *) | LINE    of int
 with show
-
+                                                   
 (* The type for the stack machine program *)
 @type prg = insn list with show
 
 module ByteCode =
   struct
-
+        
     module M = Map.Make (String)
     module S = Set.Make (String)
 
     module StringTab =
       struct
-
+       
         type t = {mutable smap : int M.t; buffer: Buffer.t; mutable index : int}
 
         let create () = {smap = M.empty; buffer = Buffer.create 255; index = 0}
 
         let add st s =
-          try let i = M.find s st.smap in i
+          try let i = M.find s st.smap in i 
           with Not_found ->
             let i = st.index in
             Buffer.add_string st.buffer s;
@@ -80,11 +78,11 @@ module ByteCode =
             st.smap  <- M.add s i st.smap;
             st.index <- st.index + String.length s + 1;
             i
-
+            
       end
 
-    exception Found of int
-
+    exception Found of int                     
+                     
     let opnum =
       let optab = ["+"; "-"; "*"; "/"; "%"; "<"; "<="; ">"; ">="; "=="; "!="; "&&"; "!!"] in
       fun s ->
@@ -136,8 +134,8 @@ module ByteCode =
       let fixups             = Stdlib.ref []                                                                       in
       let add_lab   l        = lmap := M.add l (Buffer.length code) !lmap                                          in
       let add_public l       = pubs := S.add l !pubs                                                               in
-      let add_import l       = imports := S.add l !imports                                                         in
-      let add_fixup l        = fixups := (Buffer.length code, l) :: !fixups                                        in
+      let add_import l       = imports := S.add l !imports                                                         in      
+      let add_fixup l        = fixups := (Buffer.length code, l) :: !fixups                                        in      
       let add_bytes          = List.iter (fun x -> Buffer.add_char     code @@ Char .chr                        x) in
       let add_ints           = List.iter (fun x -> Buffer.add_int32_ne code @@ Int32.of_int                     x) in
       let add_strings        = List.iter (fun x -> Buffer.add_int32_ne code @@ Int32.of_int @@ StringTab.add st x) in
@@ -170,11 +168,11 @@ module ByteCode =
       (* 0x12 s:32 n:32       *) | SEXP   (s, n)               -> add_bytes [1*16 + 2]; add_strings [s]; add_ints [n]
       (* 0x13                 *) | STI                         -> add_bytes [1*16 + 3]
       (* 0x14                 *) | STA                         -> add_bytes [1*16 + 4]
-
-                                 | LABEL   s
-                                 | FLABEL  s
+                                                               
+                                 | LABEL   s                 
+                                 | FLABEL  s                 
                                  | SLABEL  s                   -> add_lab s
-
+                                                               
       (* 0x15 l:32            *) | JMP     s                   -> add_bytes [1*16 + 5]; add_fixup s; add_ints [0]
       (* 0x16                 *) | END                         -> add_bytes [1*16 + 6]
       (* 0x17                 *) | RET                         -> add_bytes [1*16 + 7]
@@ -182,20 +180,20 @@ module ByteCode =
       (* 0x19                 *) | DUP                         -> add_bytes [1*16 + 9]
       (* 0x1a                 *) | SWAP                        -> add_bytes [1*16 + 10]
       (* 0x1b                 *) | ELEM                        -> add_bytes [1*16 + 11]
-
+                                                                   
       (* 0x2d n:32            *) | LD      d                   -> add_designations (Some 2) [d]
       (* 0x3d n:32            *) | LDA     d                   -> add_designations (Some 3) [d]
       (* 0x4d n:32            *) | ST      d                   -> add_designations (Some 4) [d]
-
+                                                                 
       (* 0x50 l:32            *) | CJMP    ("z" , s)           -> add_bytes [5*16 + 0]; add_fixup s; add_ints [0]
       (* 0x51 l:32            *) | CJMP    ("nz", s)           -> add_bytes [5*16 + 1]; add_fixup s; add_ints [0]
 
-      (* 0x70                 *) | CALL ("Lread", _, _)        -> add_bytes [7*16 + 0]
+      (* 0x70                 *) | CALL ("Lread", _, _)        -> add_bytes [7*16 + 0]                                                                                          
       (* 0x71                 *) | CALL ("Lwrite", _, _)       -> add_bytes [7*16 + 1]
       (* 0x72                 *) | CALL ("Llength", _, _)      -> add_bytes [7*16 + 2]
       (* 0x73                 *) | CALL ("Lstring", _, _)      -> add_bytes [7*16 + 3]
       (* 0x74                 *) | CALL (".array", n, _)       -> add_bytes [7*16 + 4]; add_ints [n]
-
+                                                                  
       (* 0x52 n:32 n:32       *) | BEGIN   (_, a, l, [], _, _) -> add_bytes [5*16 + 2]; add_ints [a; l] (* with no closure *)
       (* 0x53 n:32 n:32       *) | BEGIN   (_, a, l,  _, _, _) -> add_bytes [5*16 + 3]; add_ints [a; l] (* with a closure  *)
       (* 0x54 l:32 n:32 d*:32 *) | CLOSURE (s, ds)             -> add_bytes [5*16 + 4]; add_fixup s; add_ints [0; List.length ds]; add_designations None ds
@@ -236,9 +234,9 @@ module ByteCode =
       let f = open_out_bin (Printf.sprintf "%s.bc" cmd#basename) in
       Buffer.output_buffer f file;
       close_out f
-
+      
   end
-
+  
 let show_prg p =
   let b = Buffer.create 512 in
   List.iter (fun i -> Buffer.add_string b (show(insn) i); Buffer.add_string b "\n") p;
@@ -246,23 +244,23 @@ let show_prg p =
 
 (* Values *)
 @type value = (string, value array) Value.t with show
-
+      
 (* Local state of the SM *)
 @type local = { args : value array; locals : value array; closure : value array } with show
 
 (* Global state of the SM *)
-@type global = (string, value) arrow
+@type global = (string, value) arrow 
 
 (* Control stack *)
 @type control = (prg * local) list with show
 
 (* Data stack *)
 @type stack = value list with show
-
-(* The type for the stack machine configuration: control stack, stack, global and local states,
+           
+(* The type for the stack machine configuration: control stack, stack, global and local states, 
    input and output streams
 *)
-type config = control * stack * global * local * int list * int list
+type config = control * stack * global * local * int list * int list 
 
 (* Stack machine interpreter
 
@@ -270,7 +268,7 @@ type config = control * stack * global * local * int list * int list
 
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
-*)
+*)                                                  
 let split n l =
   let rec unzip (taken, rest) = function
   | 0 -> (List.rev taken, rest)
@@ -282,7 +280,7 @@ let update glob loc z = function
 | Value.Global x -> State.bind x z glob
 | Value.Local  i -> loc.locals.(i) <- z; glob
 | Value.Arg    i -> loc.args.(i) <- z; glob
-| Value.Access i -> loc.closure.(i) <- z; glob
+| Value.Access i -> loc.closure.(i) <- z; glob 
 
 let print_stack memo s =
   Printf.eprintf "Memo %!";
@@ -290,7 +288,7 @@ let print_stack memo s =
   Printf.eprintf "\n%!"
 
 let show_insn = show insn
-
+              
 let rec eval env (((cstack, stack, glob, loc, i, o) as conf) : config) = function
 | [] -> conf
 | insn :: prg' ->
@@ -300,9 +298,9 @@ let rec eval env (((cstack, stack, glob, loc, i, o) as conf) : config) = functio
    Printf.eprintf "   stack=%s\n" (show(list) (show(value)) stack);
    Printf.eprintf "end\n";
     *)
-   (match insn with
+   (match insn with   
     | IMPORT _ | PUBLIC _ | EXTERN _ | LINE _ -> eval env conf prg'
-
+                                    
     | BINOP  "=="             -> let y::x::stack' = stack in
                                  let z =
                                    match x, y with
@@ -316,12 +314,12 @@ let rec eval env (((cstack, stack, glob, loc, i, o) as conf) : config) = functio
     | BINOP  op               -> let y::x::stack' = stack in eval env (cstack, (Value.of_int @@ Expr.to_func op (Value.to_int x) (Value.to_int y)) :: stack', glob, loc, i, o) prg'
     | CONST n                 -> eval env (cstack, (Value.of_int n)::stack, glob, loc, i, o) prg'
     | STRING s                -> eval env (cstack, (Value.of_string @@ Bytes.of_string s)::stack, glob, loc, i, o) prg'
-    | SEXP (s, n)             -> let vs, stack' = split n stack in
+    | SEXP (s, n)             -> let vs, stack' = split n stack in                                 
                                  eval env (cstack, (Value.sexp s @@ List.rev vs)::stack', glob, loc, i, o) prg'
-
+                                 
     | ELEM                    -> let a :: b :: stack' = stack in
                                  eval env (env#builtin ".elem" [a; b] (cstack, stack', glob, loc, i, o)) prg'
-
+                                
     | LD x                    -> eval env (cstack, (match x with
                                                     | Value.Global x -> glob x
                                                     | Value.Local  i -> loc.locals.(i)
@@ -329,24 +327,24 @@ let rec eval env (((cstack, stack, glob, loc, i, o) as conf) : config) = functio
                                                     | Value.Access i -> loc.closure.(i)) :: stack, glob, loc, i, o) prg'
 
     | LDA x                   -> eval env (cstack, (Value.Var x) :: stack, glob, loc, i, o) prg'
-
+ 
     | ST  x                   -> let z::stack' = stack in
                                  eval env (cstack, z::stack', update glob loc z x, loc, i, o) prg'
-
-    | STI                     -> let z::(Value.Var r)::stack' = stack in
+                                 
+    | STI                     -> let z::(Value.Var r)::stack' = stack in 
                                  eval env (cstack, z::stack', update glob loc z r, loc, i, o) prg'
 
     | STA                     -> let z::j::stack' = stack in
                                  (match j with
                                   | Value.Var r -> eval env (cstack, z::stack', update glob loc z r, loc, i, o) prg'
                                   | Value.Int _ ->
-                                     let x :: stack' = stack' in
+                                     let x :: stack' = stack' in                                   
                                      Value.update_elem x (Value.to_int j) z;
                                      eval env (cstack, z::stack', glob, loc, i, o) prg'
                                  )
-
+                                 
     | SLABEL _ | LABEL  _ | FLABEL _ -> eval env conf prg'
-
+                                      
     | JMP    l                -> eval env conf (env#labeled l)
     | CJMP  (c, l)            -> let x::stack' = stack in
                                  eval env (cstack, stack', glob, loc, i, o) (if (c = "z" && Value.to_int x = 0) || (c = "nz" && Value.to_int x <> 0) then env#labeled l else prg')
@@ -362,7 +360,7 @@ let rec eval env (((cstack, stack, glob, loc, i, o) as conf) : config) = functio
                                        dgs
                                  in
                                  eval env (cstack, (Value.Closure ([], name, closure)) :: stack, glob, loc, i, o) prg'
-
+                                 
     | CALL (f, n, _)          -> let args, stack' = split n stack in
                                  if env#is_label f
                                  then eval env ((prg', loc)::cstack, stack', glob, {args = Array.of_list (List.rev args); locals = [||]; closure = [||]}, i, o) (env#labeled f)
@@ -377,19 +375,19 @@ let rec eval env (((cstack, stack, glob, loc, i, o) as conf) : config) = functio
                                      eval env ((prg', loc)::cstack, stack', glob, {args = Array.of_list args; locals = [||]; closure = closure}, i, o) (env#labeled f)
                                   | _ -> invalid_arg "not a closure (or a builtin) in CALL: %s\n" @@ show(value) f
                                  )
-
+                               
     | BEGIN (_, _, locals, _, _, _)  -> eval env (cstack, stack, glob, {loc with locals  = Array.init locals (fun _ -> Value.Empty)}, i, o) prg'
-
+                                 
     | END                     -> (match cstack with
                                   | (prg', loc')::cstack' -> eval env (cstack', (*Value.Empty ::*) stack, glob, loc', i, o) prg'
                                   | []                    -> conf
                                  )
-
+  
     | RET                     -> (match cstack with
                                   | (prg', loc')::cstack' -> eval env (cstack', stack, glob, loc', i, o) prg'
                                   | []                    -> conf
                                  )
-
+                               
     | DROP                    -> eval env (cstack, List.tl stack, glob, loc, i, o) prg'
     | DUP                     -> eval env (cstack, List.hd stack :: stack, glob, loc, i, o) prg'
     | SWAP                    -> let x::y::stack' = stack in
@@ -399,7 +397,7 @@ let rec eval env (((cstack, stack, glob, loc, i, o) as conf) : config) = functio
     | ARRAY n                 -> let x::stack' = stack in
                                  eval env (cstack, (Value.of_int @@ match x with Value.Array a when Array.length a = n -> 1 | _ -> 0) :: stack', glob, loc, i, o) prg'
     | PATT StrCmp             -> let x::y::stack' = stack in
-                                 eval env (cstack, (Value.of_int @@ match x, y with (Value.String xs, Value.String ys) when xs = ys -> 1 | _ -> 0) :: stack', glob, loc, i, o) prg'
+                                 eval env (cstack, (Value.of_int @@ match x, y with (Value.String xs, Value.String ys) when xs = ys -> 1 | _ -> 0) :: stack', glob, loc, i, o) prg'               
     | PATT Array              -> let x::stack' = stack in
                                  eval env (cstack, (Value.of_int @@ match x with Value.Array _ -> 1 | _ -> 0) :: stack', glob, loc, i, o) prg'
     | PATT String             -> let x::stack' = stack in
@@ -423,7 +421,7 @@ let rec eval env (((cstack, stack, glob, loc, i, o) as conf) : config) = functio
    Takes a program, an input stream, and returns an output stream this program calculates
 *)
 
-module M = Map.Make (String)
+module M = Map.Make (String) 
 
 class indexer prg =
   let rec make_env m = function
@@ -431,29 +429,29 @@ class indexer prg =
   | (LABEL l)  :: tl
   | (FLABEL l) :: tl -> make_env (M.add l tl m) tl
   | _ :: tl          -> make_env m tl
-  in
+  in 
   let m = make_env M.empty prg in
   object
     method is_label l = M.mem l m
     method labeled l = M.find l m
   end
-
-let run p i =
+  
+let run p i = 
   let module M = Map.Make (String) in
   let glob = State.undefined in
   let (_, _, _, _, i, o) =
     eval
       object
          inherit indexer p
-         method builtin f args ((cstack, stack, glob, loc, i, o) as conf : config) =
+         method builtin f args ((cstack, stack, glob, loc, i, o) as conf : config) = 
            let f = match f.[0] with 'L' -> String.sub f 1 (String.length f - 1) | _ -> f in
            let (st, i, o, r) = Language.Builtin.eval (State.I, i, o, []) (List.map Obj.magic @@ List.rev args) f in
            (cstack, (match r with [r] -> (Obj.magic r)::stack | _ -> Value.Empty :: stack), glob, loc, i, o)
-       end
+       end      
       ([], [], (List.fold_left (fun s (name, value) -> State.bind name value s) glob (Builtin.bindings ())), {locals=[||]; args=[||]; closure=[||]}, i, [])
       p
   in
-  o
+  o 
 
 (* Stack machine compiler
 
@@ -461,7 +459,7 @@ let run p i =
 
    Takes a program in the source language and returns an equivalent program for the
    stack machine
-*)
+*)  
 let label s         = "L" ^ s
 let scope_label i s = label s ^ "_" ^ string_of_int i
 
@@ -480,19 +478,19 @@ let check_name_and_add names name mut =
     closure      : Value.designation list;
     scopes       : scope list;
 } with show
-
+       
 @type fundef  = {
     name         : string;
     args         : string list;
     body         : Expr.t;
     scope        : funscope;
 } with show
-
+       
 @type context =
 | Top  of fundef list
 | Item of fundef * fundef list * context
 with show
-
+                                                                       
 let init_scope st = {
     st          = st;
     arg_index   = 0;
@@ -502,7 +500,7 @@ let init_scope st = {
     closure     = [];
     scopes      = [];
   }
-
+                  
 let to_fundef name args body st = {
     name        = name;
     args        = args;
@@ -511,20 +509,20 @@ let to_fundef name args body st = {
 }
 
 let from_fundef fd = (fd.name, fd.args, fd.body, fd.scope.st)
-
+                                  
 let open_scope c fd =
   match c with
   | Top _             -> Item (fd, [], c)
   | Item (p, fds, up) ->
      Item (fd, [], Item ({p with scope = fd.scope}, fds, up))
-
+                    
 let close_scope (Item (f, [], c)) = c
-
+                   
 let add_fun c fd =
   match c with
   | Top   fds              -> Top (fd :: fds)
   | Item (parent, fds, up) -> Item (parent, fd :: fds, up)
-
+  
 let rec pick = function
 | Item (parent, fd :: fds, up) ->
    Item (parent, fds, up), Some fd
@@ -544,16 +542,16 @@ let rec propagate_acc (Item (p, fds, up) as item) name =
                        st        = State.update name (Value.Access index) p.scope.st;
                        acc_index = p.scope.acc_index + 1;
                        closure   = loc :: p.scope.closure
-           }}, fds, up'), Value.Access index
+           }}, fds, up'), Value.Access index       
   | other -> item, other
 
-module FC = Map.Make (struct type t = string * string let compare = Stdlib.compare end)
+module FC = Map.Make (struct type t = string * string let compare = Pervasives.compare end)
 
 class funinfo =
 object (self : 'self)
-  val funtree      = (Stdlib.ref M.empty  : string M.t ref)
-  val closures     = (Stdlib.ref M.empty  : Value.designation list M.t ref)
-  val functx       = (Stdlib.ref FC.empty : Value.designation list FC.t ref)
+  val funtree      = (Pervasives.ref M.empty  : string M.t ref)
+  val closures     = (Pervasives.ref M.empty  : Value.designation list M.t ref)
+  val functx       = (Pervasives.ref FC.empty : Value.designation list FC.t ref)
 
   method show_funinfo =
     Printf.sprintf "funtree: %s\nclosures: %s\ncontexts: %s\n"
@@ -562,7 +560,7 @@ object (self : 'self)
       (show(list) (fun ((x, y), v) -> "(" ^ x ^ ", " ^ y ^ ")" ^ show(list) (show(Value.designation)) v) @@ FC.bindings !functx)
 
   method lookup_closure p = FC.find p !functx
-
+                          
   method register_call f c = functx := FC.add (f, c) [] !functx; self
 
   method register_fun f p = funtree := M.add f p !funtree; self
@@ -572,24 +570,24 @@ object (self : 'self)
   method private get_parent f = M.find f !funtree
 
   method get_closure f = M.find f !closures
-
+                               
   method private propagate_for_call (f, c) =
-    try
+    try 
     let fp = self#get_parent f in
     let rec find_path current =
       if fp = current
       then []
-      else find_path (self#get_parent current) @ [current]
+      else find_path (self#get_parent current) @ [current] 
     in
     let path    = find_path c in
-    let changed = Stdlib.ref false in
+    let changed = Pervasives.ref false in
     let rec propagate_downwards current_closure = function
     | []      -> current_closure
     | f :: tl ->
        let fclosure = self#get_closure f                    in
-       let delta    = Stdlib.ref fclosure               in
-       let index    = Stdlib.ref (List.length fclosure) in
-       let added    = Stdlib.ref false                  in
+       let delta    = Pervasives.ref fclosure               in
+       let index    = Pervasives.ref (List.length fclosure) in
+       let added    = Pervasives.ref false                  in
        let add_to_closure loc =
          added  := true;
          delta  := !delta @ [loc];
@@ -626,9 +624,9 @@ object (self : 'self)
     while List.fold_left (fun flag (call, _) -> flag || self#propagate_for_call call) false @@ FC.bindings !functx
     do () done;
     self
-
+    
 end
-
+  
 class env cmd imports =
 object (self : 'self)
   val label_index  = 0
@@ -644,11 +642,11 @@ object (self : 'self)
   method show_funinfo = funinfo#show_funinfo
 
   method get_closure p = try funinfo#lookup_closure p with Not_found -> []
-
+                                                                      
   method get_fun_closure f = funinfo#get_closure f
-
+                           
   method propagate_closures = {< funinfo = funinfo#propagate_closures >}
-
+                       
   method register_call f = {< funinfo = funinfo#register_call f self#current_function >}
 
   method register_fun f = {< funinfo = funinfo#register_fun f self#current_function >}
@@ -657,7 +655,7 @@ object (self : 'self)
 
   method current_function =
     match fundefs with Top _ -> "main" | Item (fd, _, _) -> fd.name
-
+    
   method private import_imports =
     let paths = cmd#get_include_paths in
     let env = List.fold_left
@@ -666,7 +664,7 @@ object (self : 'self)
                    List.fold_left
                      (fun env -> function
                       | `Variable name -> env#add_name     name `Extern Mut
-                      | `Fun name      -> env#add_fun_name name `Extern
+                      | `Fun name      -> env#add_fun_name name `Extern 
                       | _              -> env
                      )
                      env
@@ -678,14 +676,14 @@ object (self : 'self)
     env
 
   method global_scope = scope_index = 0
-
+                      
   method get_label     = (label @@ string_of_int label_index), {< label_index = label_index + 1 >}
-  method get_end_label =
+  method get_end_label =    
     let lab = label @@ string_of_int label_index in
     lab, {< end_label = lab; label_index = label_index + 1 >}
-
+    
   method end_label = end_label
-
+    
   method nargs   = scope.arg_index
   method nlocals = scope.nlocals
 
@@ -700,7 +698,7 @@ object (self : 'self)
        | _                        -> invalid_arg "must not happen"
       ) @@
     List.filter (function (_, `Local, _) -> false | _ -> true) decls
-
+    
   method push_scope (blab : string) (elab : string) =
     (*Printf.printf "push: Scope local index = %d\n" scope.local_index;*)
     match scope.st with
@@ -712,7 +710,7 @@ object (self : 'self)
              st = State.G ([], State.undefined)
          }
        >} # import_imports
-
+      
     | _ ->
        {< scope_index = scope_index + 1;
           scope       = {
@@ -744,8 +742,8 @@ object (self : 'self)
                           name        = name;
                           args        = args;
                           body        = body;
-                          scope       = {scope with st = st'};
-                      };
+                          scope       = {scope with st = st'};                          
+                      };       
        scope        = init_scope (
                         let rec readdress_to_closure = function
                           | State.L (xs, st, tl) ->
@@ -763,7 +761,7 @@ object (self : 'self)
     match top fundefs' with
     | Some fd -> {< fundefs = fundefs'; scope = fd.scope >} # pop_scope, scopes
     | None    -> {< fundefs = fundefs' >} # pop_scope, scopes
-
+                         
   method add_arg (name : string) = {<
       scope = {
         scope with
@@ -782,7 +780,7 @@ object (self : 'self)
     | `Local -> ()
     |  _  ->
        report_error (Printf.sprintf "external/public definitions (\"%s\") not allowed in local scopes" (Subst.subst name))
-
+    
   method add_name (name : string) (m : [`Local | `Extern | `Public | `PublicExtern]) (mut : Language.k) = {<
       decls = (name, m, false) :: decls;
       scope = {
@@ -805,8 +803,8 @@ object (self : 'self)
   >}
 
   method fun_internal_name (name : string) =
-    (match scope.st with State.G _ -> label | _ -> scope_label scope_index) name
-
+    (match scope.st with State.G _ -> label | _ -> scope_label scope_index) name 
+    
   method add_fun_name (name : string) (m : [`Local | `Extern | `Public | `PublicExtern]) =
     let name' = self#fun_internal_name name in
     let st'   =
@@ -817,7 +815,7 @@ object (self : 'self)
          State.G ((match m with `Extern | `PublicExtern -> names | _ -> check_name_and_add names name FVal), State.bind name (Value.Fun name') s)
       | State.L (names, s, p) ->
          self#check_scope m name;
-         State.L (check_name_and_add names name FVal, State.bind name (Value.Fun name') s, p)
+         State.L (check_name_and_add names name FVal, State.bind name (Value.Fun name') s, p)        
     in
     {<
       decls = (name, m, true) :: decls;
@@ -827,13 +825,13 @@ object (self : 'self)
   method add_lambda (args : string list) (body : Expr.t) =
     let name' = self#fun_internal_name (Printf.sprintf "lambda_%d" lam_index) in
     {< fundefs = add_fun fundefs (to_fundef name' args body scope.st); lam_index = lam_index + 1 >} # register_fun name', name'
-
+      
   method add_fun (name : string) (args : string list) (m : [`Local | `Extern | `Public | `PublicExtern]) (body : Expr.t) =
     let name' = self#fun_internal_name name in
     match m with
     | `Extern -> self
     | _ ->
-       {<
+       {<         
          fundefs = add_fun fundefs (to_fundef name' args body scope.st)
        >} # register_fun name'
 
@@ -850,26 +848,26 @@ object (self : 'self)
            acc_index = scope.acc_index + 1;
            closure   = loc :: scope.closure
          }
-       >}, Value.Access index
+       >}, Value.Access index       
     | other -> self, other
-
+    
   method next_definition =
     match pick fundefs with
     | fds, None    -> None
     | fds, Some fd -> Some ({< fundefs = fds >}, from_fundef fd)
 
-  method closure = List.rev scope.closure
+  method closure = List.rev scope.closure 
 
   method gen_line name =
     match Loc.get name with
     | None           -> self, []
     | Some (l, _) ->
        match line with
-       | None                 -> {< line = Some l >}, [LINE l]
+       | None                 -> {< line = Some l >}, [LINE l] 
        | Some l' when l' <> l -> {< line = Some l >}, [LINE l]
-       | _                    -> self, []
+       | _                    -> self, []    
 end
-
+  
 let compile cmd ((imports, infixes), p) =
   let rec pattern env lfalse = function
   | Pattern.Wildcard        -> env, false, [DROP]
@@ -904,12 +902,12 @@ let compile cmd ((imports, infixes), p) =
         (0, env, [])
         ps
     in
-    List.flatten (List.rev code), env
+    List.flatten (List.rev code), env            
   and bindings env p =
     let bindings =
       transform(Pattern.t)
         (fun fself ->
-           object inherit [int list, _, (string * int list) list] @Pattern.t
+           object inherit [int list, _, (string * int list) list] @Pattern.t 
              method c_Wildcard   path _      = []
              method c_Named      path _ s p  = [s, path] @ fself path p
              method c_Sexp       path _ x ps = List.concat @@ List.mapi (fun i p -> fself (path @ [i]) p) ps
@@ -921,7 +919,7 @@ let compile cmd ((imports, infixes), p) =
              method c_Boxed      _ _         = []
              method c_ArrayTag   _ _         = []
              method c_ClosureTag _ _         = []
-             method c_Array      path _ ps   = List.concat @@ List.mapi (fun i p -> fself (path @ [i]) p) ps
+             method c_Array      path _ ps   = List.concat @@ List.mapi (fun i p -> fself (path @ [i]) p) ps                                            
            end)
         []
         p
@@ -940,7 +938,7 @@ let compile cmd ((imports, infixes), p) =
         )
         (env, [])
         (List.rev bindings)
-    in
+    in      
     env, (List.flatten code) @ [DROP]
   and add_code (env, flag, s) l f s' = env, f, s @ (if flag then [LABEL l] else []) @ s'
   and compile_list tail l env = function
@@ -953,10 +951,10 @@ let compile cmd ((imports, infixes), p) =
      add_code (env, flag1, s1) les flag2 s2
   and compile_expr tail l env = function
   | Expr.Lambda (args, b) ->
-     let env, lines = List.fold_left (fun (env, acc) name -> let env, ln = env#gen_line name in env, acc @ ln) (env, []) args in
+     let env, lines = List.fold_left (fun (env, acc) name -> let env, ln = env#gen_line name in env, acc @ ln) (env, []) args in 
      let env, name  = env#add_lambda args b in
-     env#register_call name, false, lines @ [PROTO (name, env#current_function)]
-
+     env#register_call name, false, lines @ [PROTO (name, env#current_function)] 
+       
   | Expr.Scope (ds, e)  ->
      let blab, env = env#get_label in
      let elab, env = env#get_label in
@@ -975,11 +973,11 @@ let compile cmd ((imports, infixes), p) =
      let env = List.fold_left (fun env (name, args, m, b) -> env#add_fun name args m b) env funs in
      let env, flag, code = compile_expr tail l env e in
      env#pop_scope, flag, [SLABEL blab] @ code @ [SLABEL elab]
-
+ 
   | Expr.Unit               -> env, false, [CONST 0]
-
+                               
   | Expr.Ignore   s         -> let ls, env = env#get_label in
-                               add_code (compile_expr tail ls env s) ls false [DROP]
+                               add_code (compile_expr tail ls env s) ls false [DROP]                             
 
   | Expr.ElemRef (x, i)     -> compile_list tail l env [x; i]
   | Expr.Var      x         -> let env, line = env#gen_line x in
@@ -992,7 +990,7 @@ let compile cmd ((imports, infixes), p) =
   | Expr.String   s         -> env, false, [STRING s]
   | Expr.Binop (op, x, y)   -> let lop, env = env#get_label in
                                add_code (compile_list false lop env [x; y]) lop false [BINOP op]
-
+                               
   | Expr.Call (f, args)     -> let lcall, env = env#get_label in
                                (match f with
                                 | Expr.Var name ->
@@ -1006,45 +1004,45 @@ let compile cmd ((imports, infixes), p) =
                                     | _ ->
                                        add_code (compile_list false lcall env (f :: args)) lcall false [CALLC (List.length args, tail)]
                                    )
-
+                                  
                                 | _ -> add_code (compile_list false lcall env (f :: args)) lcall false [CALLC (List.length args, tail)]
                                )
-
+                                    
   | Expr.Array  xs          -> let lar, env = env#get_label in
                                add_code (compile_list false lar env xs) lar false [CALL (".array", List.length xs, tail)]
-
+                               
   | Expr.Sexp (t, xs)       -> let lsexp, env = env#get_label in
                                add_code (compile_list false lsexp env xs) lsexp false [SEXP (t, List.length xs)]
-
+                             
   | Expr.Elem (a, i)        -> let lelem, env = env#get_label in
                                add_code (compile_list false lelem env [a; i]) lelem false [ELEM (* CALL (".elem", 2, tail) *)]
-
+                               
   | Expr.Assign (Expr.Ref x, e) ->  let lassn, env = env#get_label in
                                     let env  , line = env#gen_line x in
                                     let env  , acc  = env#lookup x in
-                                    add_code (compile_expr false lassn env e) lassn false (line @ [ST acc])
+                                    add_code (compile_expr false lassn env e) lassn false (line @ [ST acc])     
 
   | Expr.Assign (x, e)      -> let lassn, env = env#get_label in
                                add_code (compile_list false lassn env [x; e]) lassn false [match x with Expr.Ref _ -> STI | _ -> STA] (*Expr.ElemRef _ -> STA | _ -> STI]*)
-
+                             
   | Expr.Skip               -> env, false, []
 
   | Expr.Seq    (s1, s2)    -> compile_list tail l env [s1; s2]
 
-  | Expr.If     (c, s1, s2) -> let le, env = env#get_label in
+  | Expr.If     (c, s1, s2) -> let le, env = env#get_label in 
                                let l2, env = env#get_label in
                                let env, fe   , se = compile_expr false le env c in
                                let env, flag1, s1 = compile_expr tail  l  env s1 in
                                let env, flag2, s2 = compile_expr tail  l  env s2 in
-                               env, true, se @ (if fe then [LABEL le] else []) @ [CJMP ("z", l2)] @ s1 @ (if flag1 then [] else [JMP l]) @ [LABEL l2] @ s2 @ (if flag2 then [] else [JMP l])
-
-  | Expr.While  (c, s)      -> let lexp, env = env#get_label in
+                               env, true, se @ (if fe then [LABEL le] else []) @ [CJMP ("z", l2)] @ s1 @ (if flag1 then [] else [JMP l]) @ [LABEL l2] @ s2 @ (if flag2 then [] else [JMP l]) 
+                               
+  | Expr.While  (c, s)      -> let lexp, env = env#get_label in                               
                                let loop, env = env#get_label in
                                let cond, env = env#get_label in
                                let env, fe, se = compile_expr false lexp env c in
                                let env, _ , s  = compile_expr false cond env s in
                                env, false, [JMP cond; FLABEL loop] @ s @ [LABEL cond] @ se @ (if fe then [LABEL lexp] else []) @ [CJMP ("nz", loop)]
-
+                                                                                                  
   | Expr.DoWhile (s, c)     -> let lexp , env = env#get_label in
                                let loop , env = env#get_label in
                                let check, env = env#get_label in
@@ -1053,7 +1051,7 @@ let compile cmd ((imports, infixes), p) =
                                env, false, [LABEL loop] @ body @ (if flag then [LABEL check] else []) @ se @ (if fe then [LABEL lexp] else []) @ [CJMP ("nz", loop)]
 
   | Expr.Leave              -> env, false, []
-
+                                 
   | Expr.Case (e, brs, loc, atr) ->
      let n          = List.length brs - 1 in
      let lfail, env = env#get_label in
@@ -1071,7 +1069,7 @@ let compile cmd ((imports, infixes), p) =
                in
                let env, lfalse', pcode = pattern env lfalse p in
                let blab, env           = env#get_label in
-               let elab, env           = env#get_label in
+               let elab, env           = env#get_label in               
                let env                 = env#push_scope blab elab in
                let env, bindcode       = bindings env p in
                let env, l'     , scode = compile_expr tail l env s in
@@ -1088,9 +1086,9 @@ let compile cmd ((imports, infixes), p) =
     (* Printf.eprintf "st (inner) = %s\n" (try show(Value.designation) @@ State.eval st "inner" with _ -> " not found"); *)
     let blab, env       = env#get_label in
     let elab, env       = env#get_label in
-    let env             = env#open_fun_scope blab elab fd in
+    let env             = env#open_fun_scope blab elab fd in    
     (*Printf.eprintf "Lookup: %s\n%!" (try show(Value.designation) @@ snd (env#lookup "inner") with _ -> "no inner..."); *)
-    let env             = List.fold_left (fun env arg -> env#add_arg arg) env args in
+    let env             = List.fold_left (fun env arg -> env#add_arg arg) env args in 
     let lend, env       = env#get_end_label in
     let env, flag, code = compile_expr true lend env stmt in
     let env, funcode    = compile_fundefs [] env in
@@ -1099,7 +1097,7 @@ let compile cmd ((imports, infixes), p) =
     let nargs, nlocals, closure = env#nargs, env#nlocals, env#closure in
     let env, scopes = env#close_fun_scope in
     let code =
-      ([LABEL name; BEGIN (name, nargs, nlocals, closure, args, scopes); SLABEL blab] @
+      ([LABEL name; BEGIN (name, nargs, nlocals, closure, args, scopes); SLABEL blab] @ 
        code @
        [LABEL lend; SLABEL elab; END]) :: funcode
     in
@@ -1115,7 +1113,7 @@ let compile cmd ((imports, infixes), p) =
     let rec inner state = function
     | []                       -> []
     | BEGIN  (f, na, l, c, a, s) :: tl -> BEGIN (f, na, l, (try env#get_fun_closure f with Not_found -> c), a, s) :: inner state tl
-    | PROTO  (f, c) :: tl      -> CLOSURE (f, env#get_closure (f, c)) :: inner state tl
+    | PROTO  (f, c) :: tl      -> CLOSURE (f, env#get_closure (f, c)) :: inner state tl                             
     | PPROTO (f, c) :: tl      ->
        (match env#get_closure (f, c) with
         | []      -> inner (Some f :: state) tl

@@ -1,5 +1,5 @@
   $ cat > curry1.lama <<-EOF
-  > fun f () { var x := 100; fun g (x, y) {x + y + 2} g (x, 100) }
+  > fun f () { var x := 100; fun apply (x, y) {y(x)} fun g(x)  }
   > f ()
   > EOF
   $ cat curry1.lama

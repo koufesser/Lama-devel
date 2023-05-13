@@ -1,27 +1,15 @@
-  type scope = SM.scope
+type scope = SM.scope
 let context = Llvm.global_context ()
 let i64_type = Llvm.i64_type context
 let i32_type = Llvm.i32_type context
+let i8_ptr_type = Llvm.pointer_type @@ Llvm.i8_type context
+let i32_ptr_type = Llvm.pointer_type i32_type  
 let lama_int_type = i32_type
 let lama_ptr_type = Llvm.pointer_type lama_int_type
-let () =
-  Llvm.enable_pretty_stacktrace ()
-
-type prog =
-  (string list
-  * ([ `Lefta | `Nona | `Righta ]
-    * string
-    * [ `After of string | `At of string | `Before of string ])
-    list)
-  * Language.Expr.t
-
 let scope_stack = [] 
 let waiting_labels : string list ref = ref [] 
 let latest_line_info = ref ""
 let builder = Llvm.builder context
-
-
-
 (* let integer_type = Llvm.double_type context *)
 let () = assert (Llvm_executionengine.initialize ())
 let main_module = Llvm.create_module context "main"
@@ -30,15 +18,66 @@ let the_fpm = Llvm.PassManager.create_function main_module
 
 module LL = (val LL.make builder context main_module)
 
-module BlockMap = Map.Make(String)
-module LocalsMap = Map.Make(Int)
+module StringMap = Map.Make(String)
+module IntMap = Map.Make(Int)
+module StringSet = Set.Make(String)
+
+let () =
+  Llvm.enable_pretty_stacktrace ()
+  let the_fpm = Llvm.PassManager.create_function main_module
+
+  let dump_to_object ~the_fpm =
+    Llvm_all_backends.initialize ();
+    (* "x86_64-pc-linux-gnu" *)
+    let target_triple = Llvm_target.Target.default_triple () in
+    let target = Llvm_target.Target.by_triple target_triple in
+    let cpu = "generic" in
+    let reloc_mode = Llvm_target.RelocMode.Default in
+    let machine =
+      Llvm_target.TargetMachine.create ~triple:target_triple ~cpu ~reloc_mode
+        target
+    in
+    (* Printf.printf "%s %d\n%!" __FILE__ __LINE__; *)
+    let data_layout =
+      Llvm_target.TargetMachine.data_layout machine
+      |> Llvm_target.DataLayout.as_string
+    in
+    Llvm.set_target_triple target_triple main_module;
+    Llvm.set_data_layout data_layout main_module;
+    let filename = "output.o" in
+    Llvm_target.TargetMachine.add_analysis_passes the_fpm machine;
+    let file_type = Llvm_target.CodeGenFileType.ObjectFile in
+    (* Printf.printf "%s %d\n%!" __FILE__ __LINE__; *)
+    Llvm_target.TargetMachine.emit_to_file main_module file_type filename machine;
+    (* printf "Wrote %s\n" filename; *)
+    ()
+
+type variable = 
+    | Ptr of variable 
+    | Int
+    | String of Llvm.lltype
+    | Sexp of string * variable list * int
+    | Array of variable list * int
+    | List of variable list * int
+    | Closure
+
+let rec cast_to_variable_ptr (var_type : variable) =
+  Llvm.pointer_type @@ 
+    match var_type with
+    | Ptr x -> Llvm.pointer_type @@ cast_to_variable_ptr x
+    | Int -> i32_type 
+    | String x -> x
+    | Array (x, y) -> Llvm.array_type i8_ptr_type y
+    | Sexp (x, y, z) -> Llvm.array_type i8_ptr_type (z + 1)
+    | _ -> failwith "Closure/List not implemented"
+
+
 
 let rec print_names = function
 | [] -> ()
 | (name, value)::rest ->
     Printf.printf "%s: %d\n" name value;
     print_names rest
-
 
 let rec print_scope (scope:scope) =
   Printf.printf "blab: %s\n" scope.blab;
@@ -77,107 +116,143 @@ let get_name () =
   let () = counter := !counter + 1 in 
   string_of_int @@ !counter - 1
   
-class global_c = object
-  val mutable functions = BlockMap.empty
-  method add_function (func : function_c) = 
-    functions <- BlockMap.add func#get_name func functions
-  method has_function (name : string) = 
-    BlockMap.mem name functions
-  method get_function (name : string) = 
-    BlockMap.find name functions
-  method get_all_functions = functions
-      
+class label_c (label : string) (block : Llvm.llbasicblock)  = object 
+  val mutable depth : int option = None
+  val mutable  option = None 
+  method set_depth (n: int) = 
+    depth <- Some n
+  method get_depth = 
+    match depth with 
+    | Some x -> x 
+    | None -> failwith "Unreachable code"
+  method get_name = label
+  method assert_depth c =
+    match depth with 
+    |  Some x -> if x != c then failwith "Different depths" else ()
+    | None -> depth <- Some c 
+  method get_block = block
+  method is_set = not (depth = None)
+
 end
+
+class global_c = object (self)
+  val mutable functions = StringMap.empty
+  val mutable extern_functions = StringSet.empty
+  val mutable globals = StringMap.empty
+
+  method add_function (func : function_c) = 
+    functions <- StringMap.add func#get_name func functions
+  method has_function (name : string) = 
+    StringMap.mem name functions
+  method get_function (name : string) = 
+    StringMap.find name functions
+  method get_all_functions = functions
+  
+  method add_extern_function (func : string) = 
+    extern_functions <- StringSet.add func extern_functions
+  method has_extern_function (name : string) = 
+    StringSet.mem name extern_functions
+
+  method has_global (s : string) = 
+    StringMap.mem s globals
+
+  method set_global (s : string) (value : Llvm.llvalue) (val_type : variable) = 
+    if self#has_global s then globals <- StringMap.remove s globals;
+    let global = Llvm.declare_global lama_int_type s main_module in
+    ignore @@ Llvm.build_store (Llvm.build_bitcast value i32_type (get_name ()) builder) global builder;
+    globals <- StringMap.add s val_type globals
+
+  method get_global (s : string) = 
+    if not @@ self#has_global s then failwith "Trying to store non existent global";
+    let global = Llvm.declare_global lama_int_type s main_module in
+    let value =  Llvm.build_load  global (get_name ()) builder in 
+    let val_type = StringMap.find s globals in 
+    (value, val_type)
+end
+
 and variable_c  (value : variable_type)  (parent: parent_c)  = 
 object
   method get_value = value  
   method get_parent = parent
-end and common_c (parent : parent_c) ?(scope_t= Local) (t : namespace_type)  = 
+end 
+
+and common_c (parent : parent_c) ?(scope_t=Local) (t : namespace_type)  = 
 object (self)
 
-  val mutable labels_map = BlockMap.empty
-  val mutable inner_scopes : scope_c BlockMap.t = BlockMap.empty 
+  val mutable labels_map = StringMap.empty
+  val mutable inner_scopes : scope_c StringMap.t = StringMap.empty 
+  val mutable locals = IntMap.empty
+  val mutable reachable = true
+
+  method set_reachable s = 
+    reachable <- s
+
+  method is_reachable = reachable
+  
   method is_scope : bool =
     match t with 
     | Scope -> true
     | Function -> false
     | _ -> failwith "common class without a type"
+  
   method is_function : bool =
     match t with 
     | Scope -> false
     | Function -> true
     | _ -> failwith "common class without a type"
+  
+  method add_local name ptr = 
+    locals <- IntMap.add name ptr locals
+
+  method get_local_ptr name = 
+    IntMap.find name locals
+
+  method has_local (name : int) = 
+    IntMap.mem name locals  
+
+  (* не проверяет на наличие и, в случае чего, просто падает *)
+  method store_in_local (name : int) (value : Llvm.llvalue) = 
+    Llvm.build_store value (self#get_local_ptr name) builder 
+  
+  method get_local_value name = 
+    Llvm.build_load (self#get_local_ptr name) (get_name ()) builder
 
   method set_inner_scopes (array : scope_c list)  = 
     List.iter (function x -> self#add_scope x) array 
-  
+
   method get_parent = parent
   method add_scope (scope : scope_c) =
     print_endline @@ "adding blab " ^ scope#get_blab; 
-    inner_scopes <- BlockMap.add scope#get_blab scope inner_scopes
-  method add_label (var: Llvm.llbasicblock) (name:string) =
-      labels_map <- BlockMap.add name var labels_map
-    
+    inner_scopes <- StringMap.add scope#get_blab scope inner_scopes
+  method add_label (label : label_c) =
+    labels_map <- StringMap.add label#get_name label labels_map
+
   method get_all_labels = labels_map
+
   method get_all_scopes = inner_scopes
-  method has_label (name : string) = 
-    BlockMap.mem name labels_map
+  method has_label (name : string) =
+    StringMap.mem name labels_map
+  method has_scope (name: string) =
+    StringMap.mem name inner_scopes  
+  method get_label (name : string) =
+    StringMap.find name labels_map 
 
-  method has_scope (name: string) = 
-      BlockMap.mem name inner_scopes
-      
-  method get_label (name : string) = 
-    BlockMap.find name labels_map 
-  method get_scope (blab : string) = 
-      BlockMap.find blab inner_scopes 
+  method get_scope (blab : string) =
+    StringMap.find blab inner_scopes
+end
 
-end 
-and
-scope_c  (s : scope) ?(scope_t= Local) (parent : parent_c) =
+and scope_c  (s : scope) ?(scope_t= Local) (parent : parent_c) =
 object (self)
   inherit common_c parent Scope ~scope_t:scope_t
-
-  val mutable locals_ptr_map =  LocalsMap.empty
-  val mutable locals_map = LocalsMap.empty
+  (* val mutable locals_ptr_map =  IntMap.empty
+  val mutable locals_map = IntMap.empty *)
   val mutable stack : variable_c list = []
-  val mutable if_scope = false
   val mutable stack_set = false
-  val mutable return_ptr : variable_c option = None
-  method get_all_locals = locals_map
-
-  method has_local (number : int) = 
-    LocalsMap.mem number locals_ptr_map  
-  method set_return_ptr ptr = 
-    return_ptr <- ptr
-  method get_return_ptr = 
-    match return_ptr 
-  with 
-  None -> failwith " "
-  | Some  x -> x 
-  method is_return_ptr_set = return_ptr = None
-  method is_stack_set =
-    stack_set
-  method set_stack = 
-    stack_set <- true
-  method set_if =
-    if_scope <- true
-  method is_if = if_scope
-  method add_local (num : int )(var : Llvm.llvalue) = 
-    locals_ptr_map <- LocalsMap.add num var locals_ptr_map
-
-  method get_local (name : int) = 
-    if (LocalsMap.mem name locals_map) then LocalsMap.find name locals_map 
-    else Llvm.build_load (LocalsMap.find name locals_ptr_map)  (get_name ()) builder
-
-  method store_local (value : Llvm.llvalue) (num : int) : unit = 
-    ignore @@ Llvm.build_store value (LocalsMap.find num locals_ptr_map) builder;
-    if (LocalsMap.mem num locals_map) then 
-      locals_map <- LocalsMap.remove num locals_map 
-    else ()
+  (* method get_all_locals = locals_map *)
 
   method add_to_stack (value : variable_c) = 
     stack <- value :: stack
-
+  
   method print_stack =
     let rec print_stack_ stack =
     match stack with 
@@ -210,83 +285,105 @@ object (self)
       hd
     | [] -> failwith "No values on stack to get"
     
-  method drop_from_stack =
-    match stack with 
-    | hd :: tl -> (stack <- tl)
-    | [] -> failwith "No values on stack to drop"
 
   method is_empty : bool =
     match stack with 
     | [] -> true
     | _ -> false
-       
-  method dup =
-    match stack with 
-    | hd :: tl -> (stack <- hd::hd::tl)
-    | [] -> failwith "No values on stack to dup"
-  
-  method swap = 
-    match stack with 
-    | hd:: mid :: tl -> stack <- mid :: hd :: tl
-    | _ -> failwith "Not enough values in stack to swap"
 
   method get_elab = s.elab 
   method get_blab = s.blab
 end 
+
 and function_c (name:string) (parent : parent_c) (func : Llvm.llvalue) = object (self)
   inherit common_c parent Function 
   val mutable free_ptr : Llvm.llvalue list = []
-  val mutable ptr_stack : Llvm.llvalue list = []
+  val mutable stack : Llvm.llvalue list = []
+  val mutable type_stack : variable list = []
+  val mutable depth = 0
+  val mutable last_label = None
+
   method get_name = name
   method get_function = func
+  method set_depth n =
+    while (depth < n) do 
+      ignore @@ self#get_free
+    done;
+    while (depth > n) do 
+      ignore @@ self#get_taken
+    done
 
-  method get_free_ptr = 
-    print_endline "get_free_ptr called";
+  method get_free = 
+    print_endline "get_free called";
+    depth <- depth +  1;
     match free_ptr with 
     hd :: tl -> 
       free_ptr <- tl;
-      ptr_stack <- hd :: ptr_stack;
+      stack <- hd :: stack;
       hd
     | [] -> 
       let alloca = create_entry_block_alloca (get_name()) func in
-      ptr_stack <- alloca :: ptr_stack;
+      stack <- alloca :: stack;
       alloca
 
-  method get_taken_ptr = 
+  method get_taken = 
     print_endline "get_taken_ptr called";
-    match ptr_stack with 
-      | hd :: _ ->
-        self#drop;
-        hd
-      | [] -> failwith "No values on ptr stack (get)"
-  method drop_ptr = 
-    print_endline "drop_ptr_called";
-    match ptr_stack with 
-    | hd :: tl -> 
-      ptr_stack <- tl;
-      free_ptr <- hd :: free_ptr
-    | [] -> failwith "No values on ptr stack (drop)"
+    match stack with 
+    | hd :: _ ->
+      self#drop;
+      hd
+    | [] -> failwith "No values on ptr stack (get)"
 
-  method load (value : Llvm.llvalue) builder= 
-    Llvm.build_store value (self#get_free_ptr) builder
-  
-  
+  method get_front = 
+    print_endline "get_front called";
+    match stack with 
+    | hd :: _ ->
+      hd
+    | [] -> failwith "No values on ptr stack (get)"
+
   method drop = 
-    match ptr_stack with
-    | hd::tl -> 
-      ptr_stack <- tl;
-      free_ptr <- hd :: free_ptr
-    | [] -> failwith "No values on ptr stack (drop)"
+    match stack with 
+    | hd :: tl ->
+      stack <- tl;
+      free_ptr <- hd :: free_ptr;
+      depth <- depth - 1
+    | [] -> failwith "No values on ptr stack (get)"
+
+
+  method load (value : Llvm.llvalue) (var_type : variable) = 
+    let casted = Llvm.const_bitcast value i32_type in 
+    type_stack <- var_type :: type_stack; 
+    Llvm.build_store casted (self#get_free) builder
+  
+  method load_from_ptr (value : Llvm.llvalue) =
+    let value = Llvm.build_load value (get_name ()) builder in 
+    Llvm.build_store value (self#get_free) builder
+
+  method store = 
+    let var_type = List.hd type_stack in 
+    let value_type = cast_to_variable_ptr var_type in 
+    type_stack <- List.tl type_stack;
+    (Llvm.build_load  (Llvm.const_bitcast self#get_front value_type) (get_name ()) builder, var_type)
+
   method dup = 
-    match ptr_stack with
-    | hd::tl -> 
-      ptr_stack <- hd :: ptr_stack;
-    | [] -> failwith "No values on ptr stack (dup)"
+    let (value, val_type) = self#store in 
+    ignore @@ self#load value val_type
+
   method swap = 
-    match ptr_stack with
-    | hd::tl -> 
-      ptr_stack <- hd :: ptr_stack;
+    match stack with
+    | hd::tl ->
+      let (a, a_t) = self#store in 
+      let (b, b_t) = self#store in 
+      ignore @@ self#load a a_t;
+      ignore @@ self#load b b_t
     | [] -> failwith "No values on ptr stack (dup)"
+
+  method get_depth = depth
+
+  method update_label_depth (name:string) (depth: int) = 
+    let label = StringMap.find name labels_map in 
+    let () = label#set_depth depth in
+    labels_map <- StringMap.update name  (fun _ -> Some label) labels_map
 end 
 
 and parent_c (x : function_c option) (y : scope_c option) = 
@@ -308,8 +405,7 @@ object
     | None -> failwith "Parent class is not a scope"
   end
 
-let global_scope = new global_c 
-
+let global_scope = new global_c
 let create_function_parent (func : function_c) = new parent_c (Some func) None 
 let create_scope_parent (scope : scope_c) = new parent_c None (Some scope) 
 let create_global_parent () = new parent_c None None
@@ -351,8 +447,6 @@ let current_function () =
    in 
     go_up !current_con
   
-
-
 let create_parent_c () = 
   match !current_con with 
     | Scope x -> create_scope_parent x 
@@ -384,7 +478,7 @@ let as_global x msg =
   | Function _ -> failwith @@ "Trying to cast function to global in " ^ msg
   | Global x  -> x 
 
-let find_label s =
+(* let find_label s =
   let rec go_up scope s = 
     match scope with 
     | Function x -> failwith "Looking for a label in a function"
@@ -394,8 +488,9 @@ let find_label s =
         | false -> go_up (parent_to_con x#get_parent) s)
     | Global _  -> failwith "Looking for a label in Global" in
   go_up !current_con s
-    
-(* let rec _find_variable variable_name (scope: scope_c) = 
+ *)
+
+ (* let rec _find_variable variable_name (scope: scope_c) = 
   match scope#has_variable variable_name with 
     | true -> scope#get_variable variable_name
     | false ->  let parent = scope#get_parent in 
@@ -411,28 +506,28 @@ let is_in_function () =
 
 let rec print_function_c (func : function_c) =
     print_endline @@ "function: " ^ func#get_name;
-    BlockMap.iter (function _ -> function value ->  print_scope_c value) func#get_all_scopes;
+    StringMap.iter (function _ -> function value ->  print_scope_c value) func#get_all_scopes;
 and
   print_scope_c (scope : scope_c) =
   let print_key key _ = 
     print_endline key in
   (* print_endline "Variables: ";
-  BlockMap.iter print_key scope#get_all_locals; *)
+  StringMap.iter print_key scope#get_all_locals; *)
   print_string "Scope \nblab:/";
   print_endline @@ scope#get_blab ^ "/";
-  print_endline @@ "Scope is if: " ^ string_of_bool scope#is_if; 
+  (* print_endline @@ "Scope is if: " ^ string_of_bool scope#is_if;  *)
   print_string "elab:";
   print_endline scope#get_elab;
   print_endline "Labels: ";
-  BlockMap.iter print_key scope#get_all_labels;
+  StringMap.iter print_key scope#get_all_labels;
   print_endline "Scopes: ";
-  BlockMap.iter (function _ -> function value ->  print_scope_c value) scope#get_all_scopes;
+  StringMap.iter (function _ -> function value ->  print_scope_c value) scope#get_all_scopes;
  
 and
-  print_global_scope () = BlockMap.iter (function _ -> function value -> print_function_c value ) global_scope#get_all_functions
+  print_global_scope () = StringMap.iter (function _ -> function value -> print_function_c value ) global_scope#get_all_functions
 
     (* called only on scopes *)
-let go_up () = 
+(* let go_up () = 
   let scope = (as_scope !current_con "Scope/go_up") in
   let as_value value = 
     match value with 
@@ -486,17 +581,17 @@ let go_up () =
                     done;
                     if (List.length !values < 1) then failwith "No values in function scope stack";
                     current_con := Function parent_function
-                  | Global -> current_con := Global global_scope)
+                  | Global -> current_con := Global global_scope) *)
   
 
-let find_local name =
+(* let find_local name =
   let rec _find_local name con = 
   let scope = (as_scope con "Scope/find_local") in
   if scope#has_local name then 
     scope#get_local name 
   else 
     _find_local name (parent_to_con scope#get_parent) in 
-  _find_local name !current_con
+  _find_local name !current_con *)
 
 let rec current_elab (con : container_t) = 
   match con with
@@ -504,5 +599,14 @@ let rec current_elab (con : container_t) =
   | Function _ -> failwith "Not in scope"
   | Global _  -> failwith "Not in scope"
 
-let store_local num value = 
-  (as_scope !current_con "Scope/ store_local")#store_local num value
+(* let store_in_local name = 
+  let func = current_function() in
+  if not @@ func#has_local name then 
+    func#add_local name (create_entry_block_alloca (get_name()) func#get_function);
+  let value = func#store in
+  func#store_in_local name value *)
+
+let load_local name = 
+  let func = current_function() in
+  let temp = func#get_local_value name in
+  func#load temp

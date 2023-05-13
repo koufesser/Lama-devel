@@ -1,3 +1,4 @@
+open SM_Parser
 exception Commandline_error of string
 
 type prog =
@@ -24,6 +25,7 @@ class options args =
     ^ "  -i        --- interpret on a source-level interpreter\n"
     ^ "  -s        --- compile into stack machine code and interpret on the \
        stack machine initerpreter\n"
+    ^ "  -sml       --- compile from stack machine code"
     ^ "  -dp       --- dump AST (the output will be written into .ast file)\n"
     ^ "  -dsrc     --- dump pretty-printed source code\n"
     ^ "  -ds       --- dump stack machine code (the output will be written \
@@ -42,7 +44,7 @@ class options args =
     val paths = ref [ X86.get_std_path () ]
 
     val mode =
-      ref (`Default : [ `Default | `Eval | `SM | `Compile | `BC | `LLVM | `LLVM_SM ])
+      ref (`Default : [ `Default | `Eval | `SM | `Compile | `BC | `LLVM | `LLVM_SM  | `SML ])
 
     val curdir = Unix.getcwd ()
     val debug = ref false
@@ -74,6 +76,7 @@ class options args =
                   raise (Commandline_error "Path expected after '-I' specifier")
               | Some path -> self#add_include_path path)
           | "-s" -> self#set_mode `SM
+          | "-sml" -> self#set_mode `SML
           | "-b" -> self#set_mode `BC
           | "-i" -> self#set_mode `Eval
           | "-llvmsm" -> self#set_mode `LLVM_SM
@@ -208,7 +211,15 @@ let main =
   try
     let cmd = new options Sys.argv in
     cmd#greet;
-    match
+    match cmd#get_mode with 
+    | `SML -> 
+      let insns = run_sm_parser cmd#get_infile  in 
+      print_endline (SM.show_prg insns);
+      LLVMIRSM.build insns;
+      exit 1 
+    | _ -> 
+    (  
+      match
       try Language.run_parser cmd
       with Language.Semantic_error msg -> `Fail msg
     with
@@ -254,10 +265,11 @@ let main =
           let insns  = SM.compile cmd prog in
           LLVMIRSM.build insns;
           exit 1 
-          )
+      | _ -> failwith "Not supposed to happen"
+       )
     | `Fail er ->
         Printf.eprintf "Error: %s\n" er;
-        exit 255
+        exit 255)
   with
   | Language.Semantic_error msg ->
       Printf.printf "Error: %s\n" msg;
