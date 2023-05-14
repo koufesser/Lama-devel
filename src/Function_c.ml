@@ -1,7 +1,7 @@
 type scope = SM.scope
 let context = Llvm.global_context ()
 let i64_type = Llvm.i64_type context
-let i32_type = Llvm.i32_type context
+let i32_type = Llvm.i64_type context
 let i8_ptr_type = Llvm.pointer_type @@ Llvm.i8_type context
 let i32_ptr_type = Llvm.pointer_type i32_type  
 let lama_int_type = i32_type
@@ -60,18 +60,26 @@ type variable =
     | Array of variable list * int
     | List of variable list * int
     | Closure
-
-let rec cast_to_variable_ptr (var_type : variable) =
-  Llvm.pointer_type @@ 
-    match var_type with
-    | Ptr x -> Llvm.pointer_type @@ cast_to_variable_ptr x
-    | Int -> i32_type 
-    | String x -> x
-    | Array (x, y) -> Llvm.array_type i8_ptr_type y
-    | Sexp (x, y, z) -> Llvm.array_type i8_ptr_type (z + 1)
-    | _ -> failwith "Closure/List not implemented"
+module SignatureMap = Map.Make(struct type t = (string * variable list) let compare = compare end)
 
 
+let rec create_lltype (var_type : variable) = 
+  match var_type with
+| Ptr x -> Llvm.pointer_type @@ create_lltype x
+| Int -> i32_type 
+| String x -> x
+| Array (x, y) -> Llvm.array_type i8_ptr_type y
+| Sexp (x, y, z) -> Llvm.array_type i8_ptr_type (z + 1)
+| _ -> failwith "Closure/List not implemented"
+
+
+let create_variable_ptr (var_type : variable) =
+  Llvm.pointer_type @@ create_lltype var_type
+
+let create_function_signature (ret : variable) (vars : variable list) = 
+  let ar = ref [] in 
+  List.iter (function x -> ar := create_lltype x :: !ar) vars;
+  Llvm.function_type (create_lltype ret) @@ Array.of_list !ar
 
 let rec print_names = function
 | [] -> ()
@@ -135,48 +143,14 @@ class label_c (label : string) (block : Llvm.llbasicblock)  = object
 
 end
 
-class global_c = object (self)
-  val mutable functions = StringMap.empty
-  val mutable extern_functions = StringSet.empty
-  val mutable globals = StringMap.empty
 
-  method add_function (func : function_c) = 
-    functions <- StringMap.add func#get_name func functions
-  method has_function (name : string) = 
-    StringMap.mem name functions
-  method get_function (name : string) = 
-    StringMap.find name functions
-  method get_all_functions = functions
-  
-  method add_extern_function (func : string) = 
-    extern_functions <- StringSet.add func extern_functions
-  method has_extern_function (name : string) = 
-    StringSet.mem name extern_functions
-
-  method has_global (s : string) = 
-    StringMap.mem s globals
-
-  method set_global (s : string) (value : Llvm.llvalue) (val_type : variable) = 
-    if self#has_global s then globals <- StringMap.remove s globals;
-    let global = Llvm.declare_global lama_int_type s main_module in
-    ignore @@ Llvm.build_store (Llvm.build_bitcast value i32_type (get_name ()) builder) global builder;
-    globals <- StringMap.add s val_type globals
-
-  method get_global (s : string) = 
-    if not @@ self#has_global s then failwith "Trying to store non existent global";
-    let global = Llvm.declare_global lama_int_type s main_module in
-    let value =  Llvm.build_load  global (get_name ()) builder in 
-    let val_type = StringMap.find s globals in 
-    (value, val_type)
-end
-
-and variable_c  (value : variable_type)  (parent: parent_c)  = 
+(* and variable_c  (value : variable_type)  (parent: parent_c)  = 
 object
   method get_value = value  
   method get_parent = parent
-end 
+end  *)
 
-and common_c (parent : parent_c) ?(scope_t=Local) (t : namespace_type)  = 
+(* and common_c (parent : parent_c) ?(scope_t=Local) (t : namespace_type)  = 
 object (self)
 
   val mutable labels_map = StringMap.empty
@@ -293,15 +267,22 @@ object (self)
 
   method get_elab = s.elab 
   method get_blab = s.blab
-end 
+end  *)
 
-and function_c (name:string) (parent : parent_c) (func : Llvm.llvalue) = object (self)
-  inherit common_c parent Function 
+class function_c (name:string)  (func : Llvm.llvalue) (signature : variable list) = object (self)
   val mutable free_ptr : Llvm.llvalue list = []
   val mutable stack : Llvm.llvalue list = []
   val mutable type_stack : variable list = []
+  val mutable labels_map = StringMap.empty
+
   val mutable depth = 0
-  val mutable last_label = None
+  val mutable last_block : Llvm.llbasicblock option = None
+  val mutable reachable = true
+
+  method set_reachable s = 
+    reachable <- s
+
+  method is_reachable = reachable
 
   method get_name = name
   method get_function = func
@@ -361,9 +342,11 @@ and function_c (name:string) (parent : parent_c) (func : Llvm.llvalue) = object 
 
   method store = 
     let var_type = List.hd type_stack in 
-    let value_type = cast_to_variable_ptr var_type in 
+    let value_type = create_lltype var_type in 
     type_stack <- List.tl type_stack;
-    (Llvm.build_load  (Llvm.const_bitcast self#get_front value_type) (get_name ()) builder, var_type)
+    let stored = Llvm.build_load  self#get_front (get_name ()) builder in 
+    Llvm.const_bitcast stored value_type, var_type
+
 
   method dup = 
     let (value, val_type) = self#store in 
@@ -384,9 +367,28 @@ and function_c (name:string) (parent : parent_c) (func : Llvm.llvalue) = object 
     let label = StringMap.find name labels_map in 
     let () = label#set_depth depth in
     labels_map <- StringMap.update name  (fun _ -> Some label) labels_map
+
+  method add_label (label : label_c) =
+    labels_map <- StringMap.add label#get_name label labels_map
+  method get_all_labels = labels_map
+  method has_label (name : string) =
+    StringMap.mem name labels_map
+  method get_label (name : string) =
+    StringMap.find name labels_map 
+  
+  method set_last_block l =
+    last_block <- Some l
+  
+  method get_last_block =
+    match last_block with 
+      Some x -> x 
+    | None -> failwith "No last label"
+
+  method get_argument_type (n : int) =
+    List.nth signature n 
 end 
 
-and parent_c (x : function_c option) (y : scope_c option) = 
+(* and parent_c (x : function_c option) (y : scope_c option) = 
 object 
   method get_parent_c = 
     match x with
@@ -403,23 +405,23 @@ object
     match y with 
     | Some y -> y
     | None -> failwith "Parent class is not a scope"
-  end
+  end *)
 
-let global_scope = new global_c
+(* let global_scope = new global_c
 let create_function_parent (func : function_c) = new parent_c (Some func) None 
 let create_scope_parent (scope : scope_c) = new parent_c None (Some scope) 
-let create_global_parent () = new parent_c None None
+let create_global_parent () = new parent_c None None *)
 
-type container_t = 
+(* type container_t = 
   | Scope of scope_c
   | Function of function_c
-  | Global of global_c
-
+  | Global of global_c *)
+(* 
 let parent_to_con (p : parent_c) = 
   match p#get_parent_c with
   | Scope -> Scope p#get_scope
   | Function -> Function p#get_function
-  | Global -> Global global_scope
+  | Global -> Global global_scope *)
 
 (* let add_variable (var: variable_c) (con : container_t) =
   match var#get_type with
@@ -431,9 +433,9 @@ let parent_to_con (p : parent_c) =
  *)
 
 
-let current_con = ref @@ Global global_scope
+(* let current_con = ref @@ Global global_scope *)
 
-let current_function () = 
+(* let current_function () = 
   let rec go_up (con : container_t) : function_c= 
     match con with 
     | Function x -> x 
@@ -476,7 +478,7 @@ let as_global x msg =
   match x with 
   | Scope _ -> failwith @@ "Trying to cast scope to global in " ^ msg
   | Function _ -> failwith @@ "Trying to cast function to global in " ^ msg
-  | Global x  -> x 
+  | Global x  -> x  *)
 
 (* let find_label s =
   let rec go_up scope s = 
@@ -499,7 +501,7 @@ let as_global x msg =
                                               | Function -> failwith "Can not find variable"
                                               | Global -> failwith "This message should not exist")  *)
 
-let is_in_function () = 
+(* let is_in_function () = 
   match !current_con with
   | Global _ -> true
   | _ -> false
@@ -524,7 +526,7 @@ and
   StringMap.iter (function _ -> function value ->  print_scope_c value) scope#get_all_scopes;
  
 and
-  print_global_scope () = StringMap.iter (function _ -> function value -> print_function_c value ) global_scope#get_all_functions
+  print_global_scope () = StringMap.iter (function _ -> function value -> print_function_c value ) global_scope#get_all_functions *)
 
     (* called only on scopes *)
 (* let go_up () = 
@@ -593,11 +595,11 @@ and
     _find_local name (parent_to_con scope#get_parent) in 
   _find_local name !current_con *)
 
-let rec current_elab (con : container_t) = 
+(* let rec current_elab (con : container_t) = 
   match con with
   | Scope x -> x#get_elab
   | Function _ -> failwith "Not in scope"
-  | Global _  -> failwith "Not in scope"
+  | Global _  -> failwith "Not in scope" *)
 
 (* let store_in_local name = 
   let func = current_function() in
@@ -606,7 +608,7 @@ let rec current_elab (con : container_t) =
   let value = func#store in
   func#store_in_local name value *)
 
-let load_local name = 
+(* let load_local name = 
   let func = current_function() in
   let temp = func#get_local_value name in
-  func#load temp
+  func#load temp *)

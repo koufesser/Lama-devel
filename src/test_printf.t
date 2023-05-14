@@ -1,4 +1,5 @@
   $ cat > curry1.sm <<-EOF
+  > EXTERN ("Lprintf")
   > LABEL ("main")
   > BEGIN ("main", 2, 0, [], [], [])
   > SLABEL ("L1")
