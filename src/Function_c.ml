@@ -2,7 +2,8 @@ type scope = SM.scope
 let context = Llvm.global_context ()
 let i64_type = Llvm.i64_type context
 let i32_type = Llvm.i64_type context
-let i8_ptr_type = Llvm.pointer_type @@ Llvm.i8_type context
+let i8_type = Llvm.i8_type context
+let i8_ptr_type = Llvm.pointer_type i8_type
 let i32_ptr_type = Llvm.pointer_type i32_type  
 let lama_int_type = i32_type
 let lama_ptr_type = Llvm.pointer_type lama_int_type
@@ -56,7 +57,7 @@ type variable =
     | Ptr of variable 
     | Int
     | String of Llvm.lltype
-    | Sexp of string * variable list * int
+    | Sexp of variable list * int
     | Array of variable list * int
     | List of variable list * int
     | Closure
@@ -69,7 +70,7 @@ let rec create_lltype (var_type : variable) =
 | Int -> i32_type 
 | String x -> x
 | Array (x, y) -> Llvm.array_type i8_ptr_type y
-| Sexp (x, y, z) -> Llvm.array_type i8_ptr_type (z + 1)
+| Sexp (y, z) -> Llvm.array_type i8_ptr_type (z + 1)
 | _ -> failwith "Closure/List not implemented"
 
 
@@ -129,6 +130,7 @@ class label_c (label : string) (block : Llvm.llbasicblock)  = object
   val mutable  option = None 
   method set_depth (n: int) = 
     depth <- Some n
+
   method get_depth = 
     match depth with 
     | Some x -> x 
@@ -273,6 +275,9 @@ class function_c (name:string)  (func : Llvm.llvalue) (signature : variable list
   val mutable free_ptr : Llvm.llvalue list = []
   val mutable stack : Llvm.llvalue list = []
   val mutable type_stack : variable list = []
+  val mutable locals = IntMap.empty
+  val mutable locals_type = IntMap.empty 
+
   val mutable labels_map = StringMap.empty
 
   val mutable depth = 0
@@ -347,6 +352,23 @@ class function_c (name:string)  (func : Llvm.llvalue) (signature : variable list
     let stored = Llvm.build_load  self#get_front (get_name ()) builder in 
     Llvm.const_bitcast stored value_type, var_type
 
+  method get_local_ptr name = 
+    if not @@ IntMap.mem name locals then (
+    let builder = Llvm.builder_at context (Llvm.instr_begin (Llvm.entry_block func)) in
+    let value = Llvm.build_alloca lama_int_type (get_name ()) builder in 
+    locals <- IntMap.add name value locals );
+      IntMap.find name locals
+    
+  method load_local (name : int) (value : Llvm.llvalue) (val_type : variable)  = 
+    let ptr = self#get_local_ptr name in 
+    locals_type <- IntMap.add name val_type locals_type;
+    Llvm.build_store value ptr builder
+  
+  method store_local (name : int) = 
+    let ptr = self#get_local_ptr name in
+    let value = Llvm.build_load ptr (get_name ()) builder in 
+    let val_type = IntMap.find name locals_type in 
+    Llvm.build_bitcast value (create_lltype val_type) (get_name ()) builder, val_type
 
   method dup = 
     let (value, val_type) = self#store in 
@@ -386,6 +408,8 @@ class function_c (name:string)  (func : Llvm.llvalue) (signature : variable list
 
   method get_argument_type (n : int) =
     List.nth signature n 
+
+  
 end 
 
 (* and parent_c (x : function_c option) (y : scope_c option) = 

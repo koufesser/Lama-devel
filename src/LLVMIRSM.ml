@@ -119,6 +119,11 @@ let print_basic_blocks func =
 
 let create_array n func = 
   let num = Llvm.const_int i32_type n in
+  let structure_type = Llvm.struct_type context [| i32_type; i8_ptr_type |] in
+  let structure_ptr = Llvm.build_alloca structure_type (get_name ()) builder in
+  let int_field_ptr = Llvm.build_struct_gep structure_ptr 0 (get_name ()) builder in
+  ignore (Llvm.build_store  num int_field_ptr builder);
+
   let array = Llvm.build_array_alloca i32_ptr_type num (get_name()) builder in
   let array_types = ref [] in
   for variable = 0 to n - 1 do
@@ -128,7 +133,9 @@ let create_array n func =
     array_types := value_type :: !array_types; 
     ignore @@ Llvm.build_store value value_ptr builder
   done;
-  (array, !array_types)
+  let array_field_ptr = Llvm.build_struct_gep structure_ptr 1 (get_name ()) builder in
+  ignore (Llvm.build_store array array_field_ptr builder);
+  (structure_ptr, !array_types)
 
 (* let last_block : Llvm.llbasicblock option ref = ref None  *)
 
@@ -172,27 +179,27 @@ class global_c = object (self)
     
 
 
-    method add_extern_function (func : string) = 
-      extern_functions <- StringSet.add func extern_functions
+  method add_extern_function (func : string) = 
+    extern_functions <- StringSet.add func extern_functions
 
-    method has_extern_function (name : string) = 
-      StringSet.mem name extern_functions
-  
-    method has_global (s : string) = 
-      StringMap.mem s globals
-  
-    method set_global (s : string) (value : Llvm.llvalue) (val_type : variable) = 
-      if self#has_global s then globals <- StringMap.remove s globals;
-      let global = Llvm.declare_global lama_int_type s main_module in
-      ignore @@ Llvm.build_store (Llvm.build_bitcast value i32_type (get_name ()) builder) global builder;
-      globals <- StringMap.add s val_type globals
-  
-    method get_global (s : string) = 
-      if not @@ self#has_global s then failwith "Trying to store non existent global";
-      let global = Llvm.declare_global lama_int_type s main_module in
-      let value =  Llvm.build_load  global (get_name ()) builder in 
-      let val_type = StringMap.find s globals in 
-      (value, val_type)
+  method has_extern_function (name : string) = 
+    StringSet.mem name extern_functions
+
+  method has_global (s : string) = 
+    StringMap.mem s globals
+
+  method set_global (s : string) (value : Llvm.llvalue) (val_type : variable) = 
+    if self#has_global s then globals <- StringMap.remove s globals;
+    let global = Llvm.declare_global lama_int_type s main_module in
+    ignore @@ Llvm.build_store (Llvm.build_bitcast value i32_type (get_name ()) builder) global builder;
+    globals <- StringMap.add s val_type globals
+
+  method get_global (s : string) = 
+    if not @@ self#has_global s then failwith "Trying to store non existent global";
+    let global = Llvm.declare_global lama_int_type s main_module in
+    let value =  Llvm.build_load  global (get_name ()) builder in 
+    let val_type = StringMap.find s globals in 
+    (value, val_type)
   
   method define_labels (insns:SM.prg) (func : function_c) = 
   List.iter (function (x : SM.insn) -> 
@@ -277,8 +284,7 @@ class global_c = object (self)
       Llvm.position_at_end block builder
     | _ -> ()
     ) insns
-
-
+  
   method build_one (insn : SM.insn) (func : function_c)  = 
     match insn with
     | BINOP op ->
@@ -321,7 +327,15 @@ class global_c = object (self)
     | SEXP (tag, size) ->
         (* handle S-expression *)
         print_endline (">>> S-expression: " ^ tag ^ " " ^ string_of_int size);
-        print_endline ">>> Not implemented\n"
+        let structure_type = Llvm.struct_type context [| i8_ptr_type; i8_ptr_type |] in
+        let structure_ptr = Llvm.build_alloca structure_type (get_name ()) builder in
+        let str = Llvm.build_global_string tag (get_name ()) builder in
+        let (array, ar_type) = create_array size func in
+        let string_field_ptr = Llvm.build_struct_gep structure_ptr 0 (get_name ()) builder in
+        let array_field_ptr = Llvm.build_struct_gep structure_ptr 0 (get_name ()) builder in
+        ignore (Llvm.build_store str string_field_ptr builder);
+        ignore (Llvm.build_store array array_field_ptr builder);
+        ignore @@ func#load structure_ptr (Sexp (ar_type, (List.length ar_type)))
     | LD desig ->
         print_endline @@ ">>> Load variable";
         show_desig desig;
@@ -329,7 +343,8 @@ class global_c = object (self)
         (match desig with
         | Global s ->  let (value, val_type) = self#get_global s in
         ignore @@ func#load value val_type 
-        | Local i -> failwith "Load local failed" 
+        | Local i ->  let (value, val_type) = func#store_local i in 
+                      ignore @@ func#load value val_type  
         | Arg i ->
           ignore @@ func#load (Llvm.param func#get_function i) @@ func#get_argument_type i
         | Access _ -> failwiths "access load not implemented"
@@ -354,7 +369,9 @@ class global_c = object (self)
         (match desig with
         | Global s  -> let (value, val_type) = func#store in
                         self#set_global s value val_type 
-        | Local i   ->  failwith "You should implement store in local" 
+        | Local i   -> 
+          let (value, val_type) = func#store in
+           ignore @@ func#load_local i value val_type
         | Arg i     ->  failwith "trying to store in argument"
         | Access i  -> failwiths "trying to store in access"
         | Fun s     -> failwiths "trying to store in fun"
@@ -381,7 +398,6 @@ class global_c = object (self)
       let (num, num_type) =  func#store in
       func#drop;
       let (array, array_type) = func#store in
-      func#drop;
       let array = Llvm.build_bitcast array (i32_ptr_type) (get_name ()) builder in
       let value_ptr = Llvm.build_gep array [| num |] (get_name ()) builder in
       ignore @@ func#load_from_ptr value_ptr 
@@ -517,10 +533,27 @@ class global_c = object (self)
       func#swap
     | TAG (tag_name, arity) ->
         print_endline (">>> Check tag " ^ tag_name ^ " with arity " ^ string_of_int arity);
-        print_endline "Not implemented\n"
+        let (value, val_type) = func#store in 
+        (match val_type with
+        | Sexp (a, b) ->  
+          if (arity = b) then
+            (let int_val = Llvm.const_int (Llvm.i32_type context) 1 in 
+            ignore @@ func#load int_val Int)
+          else 
+            (let int_val = Llvm.const_int (Llvm.i32_type context) 0 in 
+            ignore @@ func#load int_val Int)
+        | _ ->    (let int_val = Llvm.const_int (Llvm.i32_type context) 0 in 
+        ignore @@ func#load int_val Int)
+   )
     | ARRAY size ->
         print_endline (">>> Check array with size " ^ string_of_int size);
-        print_endline "Not implemented\n"
+        let structure_type_ptr = Llvm.pointer_type @@ Llvm.struct_type context [| i32_type; i8_ptr_type |] in
+        let (ptr, _) = func#store in  
+        let casted = Llvm.build_bitcast ptr structure_type_ptr (get_name ()) builder in 
+        let int_field_ptr = Llvm.build_struct_gep casted 0 (get_name ()) builder in
+        let loaded = Llvm.build_load int_field_ptr (get_name ()) builder in 
+        let size = Llvm.const_int i32_type size in 
+        ignore @@ Llvm.build_icmp Eq loaded size (get_name ()) builder
     | PATT patt ->
         print_endline (">>> Check pattern " ^ SM.show_patt patt);
         print_endline "Not implemented\n"
@@ -530,10 +563,8 @@ class global_c = object (self)
         (* print_endline ("Match failure at location " ^ Loc.to_string loc ^ " (" ^ leave_val_str ^ ")"); *)
         print_endline "Not implemented\n"
     | EXTERN str ->
-      print_endline (">>> External definition " ^ str);
       self#add_extern_function str
-    | PUBLIC str ->
-      print_endline (">>> PUBLIC " ^ str)
+    | PUBLIC str -> ()
     | IMPORT str ->
         print_endline (">>> IMPORT " ^ str);
         print_endline "Not implemented\n"
