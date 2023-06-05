@@ -5,7 +5,7 @@
 
 (library
  (name liba)
- (modules CConv Language Pprinter stdpath version X86 SM LL LLVMIR LLVMIRSM Function_c SM_Parser)
+ (modules CConv Language Pprinter stdpath version X86 SM LL LLVMIR LLVMIRSM Function_c SM_Parser Constants)
  (libraries
   GT
   ostap
@@ -40,6 +40,7 @@
     LLVMIRSM 
     Function_c
     SM_Parser
+    Constants
     )))
  (preprocessor_deps
   (file %{project_root}/src/pp5+gt+plugins+ostap+dump.byte))

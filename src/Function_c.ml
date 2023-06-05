@@ -1,12 +1,5 @@
 type scope = SM.scope
-let context = Llvm.global_context ()
-let i64_type = Llvm.i64_type context
-let i32_type = Llvm.i64_type context
-let i8_type = Llvm.i8_type context
-let i8_ptr_type = Llvm.pointer_type i8_type
-let i32_ptr_type = Llvm.pointer_type i32_type  
-let lama_int_type = i32_type
-let lama_ptr_type = Llvm.pointer_type lama_int_type
+open Constants
 let scope_stack = [] 
 let waiting_labels : string list ref = ref [] 
 let latest_line_info = ref ""
@@ -50,9 +43,13 @@ let () =
     let file_type = Llvm_target.CodeGenFileType.ObjectFile in
     (* Printf.printf "%s %d\n%!" __FILE__ __LINE__; *)
     Llvm_target.TargetMachine.emit_to_file main_module file_type filename machine;
-    (* printf "Wrote %s\n" filename; *)
-    ()
 
+    let filename = "output.ll" in 
+    Llvm.print_module filename main_module;
+    print_endline ("LLVM module written to: " ^ filename)
+    
+    (* printf "Wrote %s\n" filename; *)
+  
 type variable = 
     | Ptr of variable 
     | Int
@@ -61,9 +58,9 @@ type variable =
     | Array of variable list * int
     | List of variable list * int
     | Closure
-module SignatureMap = Map.Make(struct type t = (string * variable list) let compare = compare end)
+(* module SignatureMap = Map.Make(struct type t = (string * variable list) let compare = compare end) *)
 
-
+(* 
 let rec create_lltype (var_type : variable) = 
   match var_type with
 | Ptr x -> Llvm.pointer_type @@ create_lltype x
@@ -75,12 +72,12 @@ let rec create_lltype (var_type : variable) =
 
 
 let create_variable_ptr (var_type : variable) =
-  Llvm.pointer_type @@ create_lltype var_type
+  Llvm.pointer_type @@ create_lltype var_type *)
 
-let create_function_signature (ret : variable) (vars : variable list) = 
+(* let create_function_signature (ret : variable) (vars : variable list) = 
   let ar = ref [] in 
   List.iter (function x -> ar := create_lltype x :: !ar) vars;
-  Llvm.function_type (create_lltype ret) @@ Array.of_list !ar
+  Llvm.function_type (create_lltype ret) @@ Array.of_list !ar *)
 
 let rec print_names = function
 | [] -> ()
@@ -119,7 +116,7 @@ let create_entry_block_alloca var_name func =
   let builder =
     Llvm.builder_at context (Llvm.instr_begin (Llvm.entry_block func))
   in
-  Llvm.build_alloca lama_int_type var_name builder
+  Llvm.build_alloca int_type var_name builder
 
 let get_name () = 
   let () = counter := !counter + 1 in 
@@ -142,139 +139,13 @@ class label_c (label : string) (block : Llvm.llbasicblock)  = object
     | None -> depth <- Some c 
   method get_block = block
   method is_set = not (depth = None)
-
 end
 
-
-(* and variable_c  (value : variable_type)  (parent: parent_c)  = 
-object
-  method get_value = value  
-  method get_parent = parent
-end  *)
-
-(* and common_c (parent : parent_c) ?(scope_t=Local) (t : namespace_type)  = 
-object (self)
-
-  val mutable labels_map = StringMap.empty
-  val mutable inner_scopes : scope_c StringMap.t = StringMap.empty 
-  val mutable locals = IntMap.empty
-  val mutable reachable = true
-
-  method set_reachable s = 
-    reachable <- s
-
-  method is_reachable = reachable
-  
-  method is_scope : bool =
-    match t with 
-    | Scope -> true
-    | Function -> false
-    | _ -> failwith "common class without a type"
-  
-  method is_function : bool =
-    match t with 
-    | Scope -> false
-    | Function -> true
-    | _ -> failwith "common class without a type"
-  
-  method add_local name ptr = 
-    locals <- IntMap.add name ptr locals
-
-  method get_local_ptr name = 
-    IntMap.find name locals
-
-  method has_local (name : int) = 
-    IntMap.mem name locals  
-
-  (* не проверяет на наличие и, в случае чего, просто падает *)
-  method store_in_local (name : int) (value : Llvm.llvalue) = 
-    Llvm.build_store value (self#get_local_ptr name) builder 
-  
-  method get_local_value name = 
-    Llvm.build_load (self#get_local_ptr name) (get_name ()) builder
-
-  method set_inner_scopes (array : scope_c list)  = 
-    List.iter (function x -> self#add_scope x) array 
-
-  method get_parent = parent
-  method add_scope (scope : scope_c) =
-    print_endline @@ "adding blab " ^ scope#get_blab; 
-    inner_scopes <- StringMap.add scope#get_blab scope inner_scopes
-  method add_label (label : label_c) =
-    labels_map <- StringMap.add label#get_name label labels_map
-
-  method get_all_labels = labels_map
-
-  method get_all_scopes = inner_scopes
-  method has_label (name : string) =
-    StringMap.mem name labels_map
-  method has_scope (name: string) =
-    StringMap.mem name inner_scopes  
-  method get_label (name : string) =
-    StringMap.find name labels_map 
-
-  method get_scope (blab : string) =
-    StringMap.find blab inner_scopes
-end
-
-and scope_c  (s : scope) ?(scope_t= Local) (parent : parent_c) =
-object (self)
-  inherit common_c parent Scope ~scope_t:scope_t
-  (* val mutable locals_ptr_map =  IntMap.empty
-  val mutable locals_map = IntMap.empty *)
-  val mutable stack : variable_c list = []
-  val mutable stack_set = false
-  (* method get_all_locals = locals_map *)
-
-  method add_to_stack (value : variable_c) = 
-    stack <- value :: stack
-  
-  method print_stack =
-    let rec print_stack_ stack =
-    match stack with 
-    | hd :: tl -> print_variable_type hd#get_value 
-     | [] -> () 
-    in 
-    print_endline @@ "Stack of " ^ s.blab;
-    print_stack_ stack
-  
-  method front  = 
-    match stack with 
-    | hd :: tl -> hd 
-     | [] -> failwith "No values on stack for front"
-  
-  method get_from_stack = 
-    match stack with 
-    | hd :: tl -> 
-      stack <- tl;
-      (match hd#get_value with 
-      |Ptr x -> 
-        Llvm.build_load x (get_name ()) builder 
-      | Value x -> x
-      )
-    | [] -> failwith "No values on stack to get"
-  
-  method get_from_stack_without_cast = 
-    match stack with 
-    | hd :: tl -> 
-      stack <- tl;
-      hd
-    | [] -> failwith "No values on stack to get"
-    
-
-  method is_empty : bool =
-    match stack with 
-    | [] -> true
-    | _ -> false
-
-  method get_elab = s.elab 
-  method get_blab = s.blab
-end  *)
-
-class function_c (name:string)  (func : Llvm.llvalue) (signature : variable list) = object (self)
+class function_c (name:string)  (func : Llvm.llvalue)  = object (self)
+  val mutable was_opcode = false
   val mutable free_ptr : Llvm.llvalue list = []
   val mutable stack : Llvm.llvalue list = []
-  val mutable type_stack : variable list = []
+  (* val mutable type_stack : variable list = [] *)
   val mutable locals = IntMap.empty
   val mutable locals_type = IntMap.empty 
 
@@ -288,7 +159,9 @@ class function_c (name:string)  (func : Llvm.llvalue) (signature : variable list
     reachable <- s
 
   method is_reachable = reachable
-
+  method get_opcode = was_opcode
+  method set_opcode s = 
+    was_opcode <- s
   method get_name = name
   method get_function = func
   method set_depth n =
@@ -336,51 +209,49 @@ class function_c (name:string)  (func : Llvm.llvalue) (signature : variable list
     | [] -> failwith "No values on ptr stack (get)"
 
 
-  method load (value : Llvm.llvalue) (var_type : variable) = 
-    let casted = Llvm.const_bitcast value i32_type in 
-    type_stack <- var_type :: type_stack; 
-    Llvm.build_store casted (self#get_free) builder
+  method load (value : Llvm.llvalue)  = 
+    Llvm.build_store value (self#get_free) builder
   
   method load_from_ptr (value : Llvm.llvalue) =
     let value = Llvm.build_load value (get_name ()) builder in 
     Llvm.build_store value (self#get_free) builder
 
   method store = 
-    let var_type = List.hd type_stack in 
-    let value_type = create_lltype var_type in 
-    type_stack <- List.tl type_stack;
+    (* let var_type = List.hd type_stack in  *)
+    (* let value_type = create_lltype var_type in  *)
+    (* type_stack <- List.tl type_stack; *)
     let stored = Llvm.build_load  self#get_front (get_name ()) builder in 
-    Llvm.const_bitcast stored value_type, var_type
+    stored
 
   method get_local_ptr name = 
     if not @@ IntMap.mem name locals then (
     let builder = Llvm.builder_at context (Llvm.instr_begin (Llvm.entry_block func)) in
-    let value = Llvm.build_alloca lama_int_type (get_name ()) builder in 
+    let value = Llvm.build_alloca int_type (get_name ()) builder in 
     locals <- IntMap.add name value locals );
       IntMap.find name locals
     
-  method load_local (name : int) (value : Llvm.llvalue) (val_type : variable)  = 
+  method load_local (name : int) (value : Llvm.llvalue)   =
+    (* (val_type : variable)  *)
     let ptr = self#get_local_ptr name in 
-    locals_type <- IntMap.add name val_type locals_type;
+    (* locals_type <- IntMap.add name val_type locals_type; *)
     Llvm.build_store value ptr builder
   
   method store_local (name : int) = 
     let ptr = self#get_local_ptr name in
     let value = Llvm.build_load ptr (get_name ()) builder in 
-    let val_type = IntMap.find name locals_type in 
-    Llvm.build_bitcast value (create_lltype val_type) (get_name ()) builder, val_type
+    value 
 
   method dup = 
-    let (value, val_type) = self#store in 
-    ignore @@ self#load value val_type
+    let value = self#store in 
+    ignore @@ self#load value
 
   method swap = 
     match stack with
     | hd::tl ->
-      let (a, a_t) = self#store in 
-      let (b, b_t) = self#store in 
-      ignore @@ self#load a a_t;
-      ignore @@ self#load b b_t
+      let a = self#store in 
+      let b = self#store in 
+      ignore @@ self#load a;
+      ignore @@ self#load b
     | [] -> failwith "No values on ptr stack (dup)"
 
   method get_depth = depth
@@ -405,10 +276,9 @@ class function_c (name:string)  (func : Llvm.llvalue) (signature : variable list
     match last_block with 
       Some x -> x 
     | None -> failwith "No last label"
-
+(* 
   method get_argument_type (n : int) =
-    List.nth signature n 
-
+    List.nth signature n  *)
   
 end 
 
@@ -636,3 +506,129 @@ and
   let func = current_function() in
   let temp = func#get_local_value name in
   func#load temp *)
+
+  
+(* and variable_c  (value : variable_type)  (parent: parent_c)  = 
+object
+  method get_value = value  
+  method get_parent = parent
+end  *)
+
+(* and common_c (parent : parent_c) ?(scope_t=Local) (t : namespace_type)  = 
+object (self)
+
+  val mutable labels_map = StringMap.empty
+  val mutable inner_scopes : scope_c StringMap.t = StringMap.empty 
+  val mutable locals = IntMap.empty
+  val mutable reachable = true
+
+  method set_reachable s = 
+    reachable <- s
+
+  method is_reachable = reachable
+  
+  method is_scope : bool =
+    match t with 
+    | Scope -> true
+    | Function -> false
+    | _ -> failwith "common class without a type"
+  
+  method is_function : bool =
+    match t with 
+    | Scope -> false
+    | Function -> true
+    | _ -> failwith "common class without a type"
+  
+  method add_local name ptr = 
+    locals <- IntMap.add name ptr locals
+
+  method get_local_ptr name = 
+    IntMap.find name locals
+
+  method has_local (name : int) = 
+    IntMap.mem name locals  
+
+  (* не проверяет на наличие и, в случае чего, просто падает *)
+  method store_in_local (name : int) (value : Llvm.llvalue) = 
+    Llvm.build_store value (self#get_local_ptr name) builder 
+  
+  method get_local_value name = 
+    Llvm.build_load (self#get_local_ptr name) (get_name ()) builder
+
+  method set_inner_scopes (array : scope_c list)  = 
+    List.iter (function x -> self#add_scope x) array 
+
+  method get_parent = parent
+  method add_scope (scope : scope_c) =
+    print_endline @@ "adding blab " ^ scope#get_blab; 
+    inner_scopes <- StringMap.add scope#get_blab scope inner_scopes
+  method add_label (label : label_c) =
+    labels_map <- StringMap.add label#get_name label labels_map
+
+  method get_all_labels = labels_map
+
+  method get_all_scopes = inner_scopes
+  method has_label (name : string) =
+    StringMap.mem name labels_map
+  method has_scope (name: string) =
+    StringMap.mem name inner_scopes  
+  method get_label (name : string) =
+    StringMap.find name labels_map 
+
+  method get_scope (blab : string) =
+    StringMap.find blab inner_scopes
+end
+
+and scope_c  (s : scope) ?(scope_t= Local) (parent : parent_c) =
+object (self)
+  inherit common_c parent Scope ~scope_t:scope_t
+  (* val mutable locals_ptr_map =  IntMap.empty
+  val mutable locals_map = IntMap.empty *)
+  val mutable stack : variable_c list = []
+  val mutable stack_set = false
+  (* method get_all_locals = locals_map *)
+
+  method add_to_stack (value : variable_c) = 
+    stack <- value :: stack
+  
+  method print_stack =
+    let rec print_stack_ stack =
+    match stack with 
+    | hd :: tl -> print_variable_type hd#get_value 
+     | [] -> () 
+    in 
+    print_endline @@ "Stack of " ^ s.blab;
+    print_stack_ stack
+  
+  method front  = 
+    match stack with 
+    | hd :: tl -> hd 
+     | [] -> failwith "No values on stack for front"
+  
+  method get_from_stack = 
+    match stack with 
+    | hd :: tl -> 
+      stack <- tl;
+      (match hd#get_value with 
+      |Ptr x -> 
+        Llvm.build_load x (get_name ()) builder 
+      | Value x -> x
+      )
+    | [] -> failwith "No values on stack to get"
+  
+  method get_from_stack_without_cast = 
+    match stack with 
+    | hd :: tl -> 
+      stack <- tl;
+      hd
+    | [] -> failwith "No values on stack to get"
+    
+
+  method is_empty : bool =
+    match stack with 
+    | [] -> true
+    | _ -> false
+
+  method get_elab = s.elab 
+  method get_blab = s.blab
+end  *)

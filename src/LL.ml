@@ -1,5 +1,6 @@
 open Llvm
 open Printf
+open Constants
 
 module type S = sig
   val build_store : Llvm.llvalue -> Llvm.llvalue -> Llvm.llvalue
@@ -55,16 +56,15 @@ let make builder context module_ =
     let build_pointercast ?(name = "") f typ =
       Llvm.build_pointercast f typ name builder
 
-    let i32_type = i32_type context
 
     let declare_function name nargs =
-      let params = Array.make nargs i32_type in
-      let function_type = Llvm.function_type i32_type params in 
+      let params = Array.make nargs int_type in
+      let function_type = Llvm.function_type int_type params in 
       Llvm.declare_function name  function_type module_ 
   
     let define_function name nargs =
-      let params = Array.make nargs i32_type in
-      let function_type = Llvm.function_type i32_type params in 
+      let params = Array.make nargs int_type in
+      let function_type = Llvm.function_type int_type params in 
       Llvm.define_function name  function_type module_
 
     let current_function () = Llvm.block_parent (Llvm.insertion_block builder)

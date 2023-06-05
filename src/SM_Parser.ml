@@ -21,12 +21,12 @@ let print_list l =
   print_endline ""
 
 (* let parse_designation_list desigs () *)
-let parse_insn (line : string list) =
+let parse_insn (line : string list) (wline : string) =
   (* print_list line; *)
   match List.hd line with
   | "BINOP"  -> BINOP (List.nth line 1)
   | "CONST"  -> CONST (int_of_string (List.nth line 1))
-  | "STRING" -> STRING (String.concat " " (List.tl line))
+  | "STRING" -> STRING (List.nth (Str.split (Str.regexp "[()\"]") wline) 2)
   | "SEXP"   -> SEXP (List.nth line 1, (int_of_string (List.nth line 2)))
   | "LD"     -> LD (parse_designation @@ List.tl line) 
   | "LDA"    -> LDA (parse_designation @@ List.tl line)
@@ -61,7 +61,8 @@ let parse_insn (line : string list) =
   | "PUBLIC" -> PUBLIC (List.nth line 1)
   | "IMPORT" -> IMPORT (List.nth line 1)
   | "LINE"   -> LINE (int_of_string (List.nth line 1))
-  | _       -> failwith @@ "instruction not parsed : " ^ List.hd line 
+  | "FAIL"   -> FAIL ((1,2), false)
+  | _   -> failwith @@ "instruction not parsed : " ^ List.hd line 
 
 let run_sm_parser file = 
   let insns : insn list ref = ref [] in
@@ -72,7 +73,7 @@ let run_sm_parser file =
       print_endline line;
       let words =   List.filter (fun str -> str <> "") @@
       Str.split (Str.regexp "[\" (),]") line in 
-      insns := (parse_insn words) :: !insns 
+      insns := (parse_insn words line) :: !insns 
     done
   with End_of_file ->
     close_in channel);
