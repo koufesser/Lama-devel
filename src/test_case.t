@@ -1,8 +1,8 @@
   $ cat > test_array.lama <<-EOF
   > case E of
-  > A -> printf ("Nope. This is A\n")
-  > | AB -> printf ("Nope. This is AB\n")
-  > | B (x) -> printf ("Nope. This is B(x)\n")
+  > A -> printf ("Nope, this is A.\n")
+  > | AB -> printf ("Nope, this is AB.\n")
+  > | AB (x) -> printf ("Nope, this is AB(x).\n")
   > | E -> printf ("Yes, this is E.\n") 
   > esac
   > EOF

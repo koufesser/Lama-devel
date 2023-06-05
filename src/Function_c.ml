@@ -152,7 +152,6 @@ class function_c (name:string)  (func : Llvm.llvalue)  = object (self)
   val mutable labels_map = StringMap.empty
 
   val mutable depth = 0
-  val mutable last_block : Llvm.llbasicblock option = None
   val mutable reachable = true
 
   method set_reachable s = 
@@ -268,14 +267,8 @@ class function_c (name:string)  (func : Llvm.llvalue)  = object (self)
     StringMap.mem name labels_map
   method get_label (name : string) =
     StringMap.find name labels_map 
-  
-  method set_last_block l =
-    last_block <- Some l
-  
-  method get_last_block =
-    match last_block with 
-      Some x -> x 
-    | None -> failwith "No last label"
+
+
 (* 
   method get_argument_type (n : int) =
     List.nth signature n  *)

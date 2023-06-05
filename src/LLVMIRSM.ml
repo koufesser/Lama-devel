@@ -158,10 +158,17 @@ class global_c = object (self)
     | INT_PTR -> Llvm.build_inttoptr value int_ptr_type (get_name()) builder
     | BITE_PTR ->  Llvm.build_inttoptr value int_ptr_type (get_name()) builder
 
-  method insert_block (func : function_c) s = 
-     let next_block = find_next_block func in 
-     let new_block = Llvm.insert_block context s next_block in 
-     new_block
+  method insert_block (func : function_c) s =
+    let insertion_block = Llvm.insertion_block builder in
+    let all_blocks = Llvm.basic_blocks func#get_function in  
+    let last_block = all_blocks.(Array.length all_blocks - 1) in 
+    if insertion_block = last_block then 
+      let block = Llvm.append_block context (get_name ()) func#get_function in 
+      block
+    else    
+      let next_block = find_next_block func in 
+      let new_block = Llvm.insert_block context s next_block in 
+      new_block
 
   method cast_args s (args : Llvm.llvalue list) = 
     let casted_array = List.map (function y ->  Llvm.build_inttoptr y i8_ptr_type (get_name()) builder)  args in 
@@ -370,7 +377,6 @@ class global_c = object (self)
       print_endline @@ "position at end: label " ^ s;
       ignore @@ self#check_opcode func label#get_block; 
       Llvm.position_at_end label#get_block builder;
-      func#set_last_block label#get_block
     | LABEL s -> 
       print_endline (">>> (F)Label: " ^ s);
       let label = func#get_label s in
@@ -388,7 +394,6 @@ class global_c = object (self)
       ignore @@ self#check_opcode func label#get_block; 
       print_endline @@ "position at end: label " ^ s; 
       Llvm.position_at_end label#get_block builder;
-      func#set_last_block label#get_block
 
     | SLABEL s -> () 
         (* if (current_function ())#get_name = "main" then (
@@ -429,7 +434,7 @@ class global_c = object (self)
       let insertion_block = Llvm.insertion_block builder in
       let instn_block_name = Llvm.value_name @@ Llvm.value_of_block insertion_block in  
       let () = print_endline (">>> Current block: " ^ instn_block_name ^ " " ^ s) in
-      let after_bb = find_next_block func in
+      let after_bb = self#insert_block func (get_name () ^ "_cjmp") in
       let zero = Llvm.const_int int_type 0 in
       let value = func#store in 
       let cond_ = Llvm.build_icmp Llvm.Icmp.Ne value zero (get_name ()) builder  in
@@ -443,14 +448,13 @@ class global_c = object (self)
           Llvm.build_cond_br cond_  dest_block#get_block after_bb builder
         | _ -> failwiths "wtf is this cjmp"
         );
-      print_endline @@ "position at end: afterbb " ^ Llvm.value_name @@ Llvm.value_of_block after_bb;
-      Llvm.position_at_end after_bb builder;
-      func#set_last_block after_bb
+      (* print_endline @@ "position at end: afterbb " ^ Llvm.value_name @@ Llvm.value_of_block after_bb;
+      Llvm.position_at_end after_bb builder; *)
+      Llvm.position_at_end after_bb builder
     | BEGIN (name, _, _, _, _, _) ->
       (* print_endline @@ "BEGIN " ^ name ;  *)
       let llvm_func = func#get_function in
       let entry = Llvm.entry_block llvm_func in 
-      func#set_last_block entry;
       print_endline @@ "position at end: entry " ^ name;
       Llvm.position_at_end entry builder
       (* print_function_c func; *)
