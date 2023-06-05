@@ -8,3 +8,4 @@ byterun/byterun
 .vscode
 .idea
 _build
+*.ll
