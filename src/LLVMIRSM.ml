@@ -51,25 +51,9 @@ let print_basic_block_name bb =
 let print_basic_blocks func =
   Llvm.fold_left_blocks (fun () bb -> print_basic_block_name @@ Llvm.value_of_block bb) () func
 
-let create_string s = 
-  let _ = Llvm.build_alloca int_type (get_name () ^ "_start_of_string_allocation") builder in 
-  let str = Llvm.build_global_stringptr s (get_name ()) builder in 
-  (*   call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 16 %5, i8* align 1 %6, i64 %9, i1 false) *)
-  let f = Llvm.declare_function memcpy_name memcpy_type main_module in 
-  let array_size = Llvm.const_int int_type @@ String.length s + 1 in  
-  let full_size = Llvm.const_int int_type @@ String.length s + 3   in 
-  let array = Llvm.build_array_alloca  int_type full_size (get_name () ^ "_string_" ^ s) builder in 
-  
-  let zero_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
-  let one_ptr = Llvm.build_gep array [| one |] (get_name ()) builder in
-  ignore @@ Llvm.build_store string_code zero_ptr builder;
-  ignore @@ Llvm.build_store array_size one_ptr builder;
+  (* gets ptr to global string *)
+let create_string (str : Llvm.llvalue) (array_size : Llvm.llvalue) builder = ()
 
-  let array_start = Llvm.build_gep array [| two |]  (get_name ()) builder in 
-  let array_start = Llvm.build_bitcast array_start i8_ptr_type (get_name ()) builder in 
-  let _ = Llvm.build_call f [| array_start; str; array_size; lfalse |] "" builder in 
-  let _ = Llvm.build_alloca int_type (get_name () ^ "_end_of_string_allocation") builder in
-  array_start
 
 let create_array n (func : function_c) = 
   let full_size = Llvm.const_int int_type (n + 2) in
@@ -88,30 +72,6 @@ let create_array n (func : function_c) =
     ignore @@ Llvm.build_store value value_ptr builder
   done;
   Llvm.build_gep array [| two |] (get_name ()) builder
-
-let create_sexp size (tag : string) (func : function_c) =   
-  let full_size = Llvm.const_int int_type (size + 3) in
-  let array_size = Llvm.const_int int_type size in
-  let array = Llvm.build_array_alloca int_type full_size (get_name() ^ "_array") builder in
-  
-  let zero_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
-  let one_ptr = Llvm.build_gep array [| one |] (get_name ()) builder in
-  let two_ptr = Llvm.build_gep array [| two |] (get_name ()) builder in
-
-  let string_ptr = create_string tag in 
-  let cstring_ptr = Llvm.build_ptrtoint string_ptr int_type (get_name ()) builder in
-  ignore @@ Llvm.build_store cstring_ptr zero_ptr builder;
-  ignore @@ Llvm.build_store sexp_code one_ptr builder;
-  ignore @@ Llvm.build_store array_size two_ptr builder;
-  
-  for variable = 3 to size + 2 do
-    let num = Llvm.const_int int_type variable in
-    let value_ptr = Llvm.build_gep array [| num |] (get_name ()) builder in
-    let value = func#store in
-    func#drop;
-    ignore @@ Llvm.build_store value value_ptr builder
-  done;
-  Llvm.build_gep array [| three |] (get_name ()) builder
 
 let find_next_block func  = 
   let last_block = Llvm.insertion_block builder in
@@ -135,35 +95,125 @@ class global_c = object (self)
   val mutable functions = StringMap.empty
   val mutable extern_functions = StringSet.empty
   val mutable globals = StringMap.empty
-
+  val mutable created_builtIns = StringMap.empty 
+  
   method add_function_insns (name: string) (desc : SM.prg) = 
     functions_prg <- StringMap.add name desc functions_prg
 
+  method define_builtIn name =
+    match name with
+    ".tag" ->  
+    print_endline ".tag creating";
+    let func_type = Llvm.function_type int_type [| int_type; i8_ptr_type; int_type; int_type |] in
+    let llfunc = Llvm.define_function name func_type main_module in
+    let func = new function_c ".tag" llfunc in
+    let entry = Llvm.entry_block llfunc in
+    let builder = Llvm.builder context in 
+    Llvm.position_at_end entry builder;
+    let f = Llvm.declare_function memcmp_name memcmp_type main_module in 
+    let comparison_array = Llvm.build_array_malloc int_type two (get_name() ^ "_tag_comp") builder in 
+    let zero_ptr = Llvm.build_gep comparison_array [| zero |] (get_name ()) builder in 
+    let one_ptr = Llvm.build_gep comparison_array [| one |] (get_name ()) builder in 
+    let lsize = Llvm.param llfunc 0 in
+    let tag_name = Llvm.param llfunc 1 in
+    let str_size = Llvm.param llfunc 2 in
+    let sexp =  Llvm.param llfunc 3 in
+    (* let ostr = Llvm.build_global_stringptr "pointer to sexp looks like: %d " (get_name ())  builder in 
+    let _ = self#make_printf_args [| ostr; sexp |] builder in  *)
+
+    (* let ostr = Llvm.build_global_stringptr "pointer to tag_comp looks like: %d " (get_name ())  builder in 
+    let _ = self#make_printf_args [| ostr; comparison_array |] builder in  *)
+
+    ignore @@ Llvm.build_store sexp_code zero_ptr builder;
+    ignore @@ Llvm.build_store lsize one_ptr builder;
+    let ptr_to_sexp = Llvm.build_inttoptr sexp int_ptr_type (get_name () ^ "_sexp") builder in 
+    let ptr_to_sexp = Llvm.build_gep ptr_to_sexp [| mtwo |] (get_name ()) builder in
+    let i8ptr_to_sexp = Llvm.build_bitcast ptr_to_sexp i8_ptr_type (get_name ()) builder in
+    let i8_ptr_comparison_array = Llvm.build_bitcast comparison_array i8_ptr_type (get_name()) builder in 
+    let comp = Llvm.build_call f [| i8ptr_to_sexp; i8_ptr_comparison_array; (Llvm.const_int int_type @@ int_size * 2) |] (get_name()) builder in 
+    let cond = Llvm.build_icmp Ne comp zero (get_name()) builder in
+    let block_1 = Llvm.append_block context (get_name() ^ "_tagblock_1") llfunc in 
+    let block_2 = Llvm.append_block context (get_name() ^ "_tagblock_2") llfunc in 
+    let block_3 = Llvm.append_block context (get_name() ^ "_tagblock_3") llfunc in 
+    let _ = Llvm.build_cond_br  cond block_1 block_2 builder in 
+    let _ = Llvm.position_at_end block_1 builder in
+    self#make_printf "in block 1" func builder;
+    let _ = Llvm.build_ret zero builder in
+    let _ = Llvm.position_at_end block_2 builder in
+    self#make_printf "in block 2" func builder;
+    let ptr_ptr_string = Llvm.build_gep ptr_to_sexp [| mone |] (get_name ()) builder in
+    let ptr_string = Llvm.build_load ptr_ptr_string (get_name ()^"_str_st") builder in  
+    let int_ptr_string = Llvm.build_inttoptr ptr_string int_ptr_type (get_name()) builder in  
+    let ptr_string_size = Llvm.build_gep int_ptr_string [| mone |] (get_name()) builder in
+    let string_size = Llvm.build_load ptr_string_size (get_name()) builder in
+    let d = Llvm.build_global_stringptr "length is: %d " (get_name ()) builder in 
+    self#make_printf_args [| d; string_size |] builder;
+    (* self#make_printf_args [| d; str_size |] builder; *)
+    let cond = Llvm.build_icmp Ne string_size str_size (get_name ()) builder in  
+    let _ = Llvm.build_cond_br cond block_1 block_3 builder in
+    let _ = Llvm.position_at_end block_3 builder in
+    self#make_printf "in block 3" func builder;
+    let ptr_string_i8 = Llvm.build_inttoptr ptr_string i8_ptr_type (get_name ()) builder in  
+    let comp = Llvm.build_call f [| ptr_string_i8; tag_name; str_size |] (get_name ()) builder in  
+    let cond = Llvm.build_icmp Eq comp zero (get_name ()) builder in 
+    let cond = Llvm.build_intcast cond int_type (get_name ()) builder in  
+    ignore @@ Llvm.build_ret cond builder;
+    llfunc
+  | ".string" -> 
+    print_endline ".tag creating";
+    let func_type = Llvm.function_type i8_ptr_type [| i8_ptr_type; int_type |] in
+    let llfunc = Llvm.define_function name func_type main_module in
+    let entry = Llvm.entry_block llfunc in
+    let builder = Llvm.builder context in 
+    Llvm.position_at_end entry builder;
+    let array_size = Llvm.param llfunc 1 in 
+    let str = Llvm.param llfunc 0 in 
+    (*   call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 16 %5, i8* align 1 %6, i64 %9, i1 false) *)
+    let f = Llvm.declare_function memcpy_name memcpy_type main_module in 
+    let eight = Llvm.const_int int_type 8 in 
+
+    let actual_size = Llvm.build_sdiv array_size eight   (get_name ()) builder  in
+    let full_size = Llvm.build_add  actual_size three (get_name ()) builder  in 
+    (* let act_size_str = Llvm.build_global_stringptr "actual size: %d" (get_name ()) builder in  *)
+    (* let _ = self#make_printf_args [| act_size_str; actual_size |] builder in  *)
+    let array = Llvm.build_array_alloca  int_type full_size (get_name () ^ "_string_") builder in 
+    
+    let zero_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
+    let one_ptr = Llvm.build_gep array [| one |] (get_name ()) builder in
+    ignore @@ Llvm.build_store string_code zero_ptr builder;
+    ignore @@ Llvm.build_store array_size one_ptr builder;
+  
+    let array_start = Llvm.build_gep array [| two |]  (get_name ()) builder in 
+    let array_start = Llvm.build_bitcast array_start i8_ptr_type (get_name ()) builder in 
+    let _ = Llvm.build_call f [| array_start; str; array_size; lfalse |] "" builder in 
+    ignore @@ Llvm.build_ret array_start builder;
+    llfunc
+  | _ -> failwith "No such builtIn"
+
+
   method get_llfunction  (name : string) (args : int) =
     (* (val_type : variable) *)
-    print_endline @@ "get_llfunction called" ^ name;
-    if self#has_extern_function name then (
-      print_endline @@ "Extern function: " ^ name;
-    let (name, funType) = get_function_signature name in 
-       Llvm.declare_function name funType  main_module)
+    (* print_endline @@ "get_llfunction called" ^ name; *)
+    if List.mem name builtIns then 
+      let _ = if not @@ StringMap.mem name created_builtIns then 
+        created_builtIns <- StringMap.add name (self#define_builtIn name) created_builtIns in 
+    StringMap.find name created_builtIns
+    else if List.mem name cFunctions then
+      let (name, signature) = get_cfunction_signature name in 
+      Llvm.declare_function name signature main_module 
+    else if self#has_extern_function name then
+      LL.declare_function name args
     else 
     (if not @@ StringMap.mem name functions then 
       self#create_function name args;
-    (StringMap.find name functions)#get_function
-    )
-
-  method cast_to_llvalue (value : Llvm.llvalue) (t: args_type) = 
-    match t with 
-    | INT -> value
-    | INT_PTR -> Llvm.build_inttoptr value int_ptr_type (get_name()) builder
-    | BITE_PTR ->  Llvm.build_inttoptr value int_ptr_type (get_name()) builder
+    (StringMap.find name functions)#get_function)
 
   method insert_block (func : function_c) s =
     let insertion_block = Llvm.insertion_block builder in
     let all_blocks = Llvm.basic_blocks func#get_function in  
     let last_block = all_blocks.(Array.length all_blocks - 1) in 
     if insertion_block = last_block then 
-      let block = Llvm.append_block context (get_name ()) func#get_function in 
+      let block = Llvm.append_block context s func#get_function in 
       block
     else    
       let next_block = find_next_block func in 
@@ -175,14 +225,17 @@ class global_c = object (self)
     casted_array
 
 
-  method make_printf (s: string) (func : function_c) =
+  method make_printf (s: string) (_ : function_c) builder  =
     let ptr = Llvm.build_global_stringptr s (get_name ()) builder in 
-    let strint = Llvm.build_ptrtoint ptr int_type (get_name ()) builder in
-    ignore @@ func#load strint;
-    let get_args () : SM.insn list = [CALL ("Lprintf", 1, false); DROP] in
-    List.iter (function x -> self#build_one x func ) @@ get_args ()
-
-
+    let llvm_func =  self#get_llfunction "Lprintf" 2 in
+    let name =  get_name () in
+    ignore @@ Llvm.build_call llvm_func [| ptr |] name builder 
+  
+  method make_printf_args (args : Llvm.llvalue array) builder  =
+    let llvm_func =  self#get_llfunction "Lprintf" 2 in
+    let name =  get_name () in
+    ignore @@ Llvm.build_call llvm_func args name builder 
+  
   method create_function (name : string) (args : int) = 
     print_endline @@ "create function called " ^ name;
     let llfunc = LL.define_function name args  in 
@@ -196,14 +249,14 @@ class global_c = object (self)
     extern_functions <- StringSet.add func extern_functions
 
   method has_extern_function (name : string) = 
-    StringSet.mem name extern_functions || List.mem name builtIns
+    StringSet.mem name extern_functions
 
   method has_global (s : string) = 
     StringMap.mem s globals
 
   method store_global (value : Llvm.llvalue) (s : string)  = 
     let global = if self#has_global s then StringMap.find s globals else 
-      let gl = Llvm.define_global s  (Llvm.const_int int_type 0)  main_module in 
+      let gl = Llvm.define_global s (Llvm.const_int int_type 0)  main_module in 
       let _ = globals <- StringMap.add s gl globals in 
       gl in
     ignore @@ Llvm.build_store (Llvm.build_bitcast value int_type (get_name ()) builder) global builder
@@ -295,15 +348,48 @@ class global_c = object (self)
       print_endline "const end"
       | STRING s ->
       let () = print_endline (">>> String: " ^ s) in
-      let string_ptr = create_string s in
+      let lls = Llvm.build_global_stringptr s (get_name()) builder in 
+      let string_f = self#get_llfunction ".string" 2 in 
+      let string_ptr = Llvm.build_call string_f [| lls; (Llvm.const_int int_type @@ String.length s + 1)|] (get_name ()) builder in 
       let cstring_ptr = Llvm.build_ptrtoint string_ptr int_type (get_name ()) builder in
       (* assert_in_scope (); *)
       (* push_variable @@ new variable_c  (Value string_val) (create_parent ()) *)
       ignore @@ func#load cstring_ptr 
     | SEXP (tag, size) ->
-        let sexp = create_sexp size tag func in 
-        let lsexp = Llvm.build_ptrtoint sexp int_type (get_name () ^ "sexp_created") builder in
-        ignore @@ func#load lsexp
+      
+      let full_size = Llvm.const_int int_type @@ (size + 3) * 8 in
+      let array_size = Llvm.const_int int_type size in
+      let array = Llvm.build_array_malloc int_type full_size (get_name() ^ "_array") builder in
+      
+      let zero_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
+      let one_ptr = Llvm.build_gep array [| one |] (get_name ()) builder in
+      let two_ptr = Llvm.build_gep array [| two |] (get_name ()) builder in
+    
+      let lltag = Llvm.build_global_stringptr tag (get_name ()) builder in 
+      let string_f = self#get_llfunction ".string" 2 in 
+      let string_ptr = Llvm.build_call string_f [| lltag; (Llvm.const_int int_type @@ String.length tag + 1) |] (get_name ()) builder in 
+      (* let lsize = Llvm.build_bitcast string_ptr int_ptr_type (get_name()) builder in  *)
+      (* let lsize = Llvm.build_gep lsize [| mone |] (get_name()) builder in  *)
+      (* let lsize = Llvm.build_load lsize (get_name ()) builder in  *)
+      (* let d = Llvm.build_global_stringptr "real length is: %d " (get_name ()) builder in  *)
+      (* self#make_printf_args [| d; lsize |] builder; *)
+      let cstring_ptr = Llvm.build_ptrtoint string_ptr int_type (get_name ()) builder in
+      ignore @@ Llvm.build_store cstring_ptr zero_ptr builder;
+      ignore @@ Llvm.build_store sexp_code one_ptr builder;
+      ignore @@ Llvm.build_store array_size two_ptr builder;
+      
+      for variable = 3 to size + 2 do
+        let num = Llvm.const_int int_type variable in
+        let value_ptr = Llvm.build_gep array [| num |] (get_name ()) builder in
+        let value = func#store in
+        func#drop;
+        ignore @@ Llvm.build_store value value_ptr builder
+      done;
+      let sexp = Llvm.build_gep array [| three |] (get_name ()) builder in 
+      let lsexp = Llvm.build_ptrtoint sexp int_type (get_name () ^ "sexp_created") builder in
+      ignore @@ func#load lsexp;
+      print_endline "sexp"
+
     | LD desig ->
         print_endline @@ ">>> Load variable";
         show_desig desig;
@@ -358,9 +444,33 @@ class global_c = object (self)
         print_endline ">>> Store reference";
         print_endline "Not implemented\n"
     | STA ->
-        (* handle store array/sexp/string *)
-        print_endline ">>> Store array/sexp/string";
-        print_endline "Not implemented\n"
+      let value = func#store in 
+      let _ = func#drop in 
+      let ind = func#store in
+      let _ = func#drop in 
+      let array = func#store in
+      (* let _ = func#drop in   *)
+      let ar_ptr = Llvm.build_inttoptr array int_ptr_type (get_name ()) builder in 
+      let t_ptr = Llvm.build_gep ar_ptr [| mtwo |] (get_name() ^ "_ar_type") builder in 
+      let type_ = Llvm.build_load t_ptr (get_name() ^ "_type") builder in
+      let after_block = self#insert_block func (get_name () ^ "_after_sta") in
+      let ar_block = self#insert_block func (get_name () ^ "_sta_ar") in 
+      let str_block = self#insert_block func (get_name () ^ "_sta_str") in 
+      let str_cmp = Llvm.build_icmp Eq type_ string_code (get_name () ^ "_sta_str_cmp") builder in 
+      let _ = Llvm.build_cond_br str_cmp str_block ar_block builder in 
+      
+      let _ = Llvm.position_at_end str_block builder in 
+      let ar_ptr_i8 = Llvm.build_inttoptr array i8_ptr_type (get_name ()) builder in
+      let ptr_store = Llvm.build_gep ar_ptr_i8 [| ind |] (get_name ()) builder in 
+      let value_i8 = Llvm.build_intcast value i8_type (get_name ()) builder in 
+      let _ = Llvm.build_store  value_i8 ptr_store builder in 
+      let _ = Llvm.build_br after_block builder in   
+
+      let _ = Llvm.position_at_end ar_block builder in 
+      let ptr_store = Llvm.build_gep ar_ptr [| ind |] (get_name ()) builder in 
+      let _ =  Llvm.build_store  value ptr_store builder in  
+      let _ = Llvm.build_br after_block builder in  
+      Llvm.position_at_end after_block builder 
     | ELEM ->
       print_endline "elem";
       (* handle array/string/sexp element *)
@@ -519,62 +629,16 @@ class global_c = object (self)
       func#dup  
     | SWAP ->
       func#swap
-    | TAG (tag_name, arity) -> 
-      let _ = Llvm.build_alloca int_type (get_name () ^ "_tag_start_" ^ tag_name) builder in 
-      let f = Llvm.declare_function memcmp_name memcmp_type main_module in 
-      let comparison_array = Llvm.build_array_alloca int_type two (get_name() ^ "_tag_comp") builder in 
-      let zero_ptr = Llvm.build_gep comparison_array [| zero |] (get_name ()) builder in 
-      let one_ptr = Llvm.build_gep comparison_array [| one |] (get_name ()) builder in 
-      let lsize = Llvm.const_int int_type arity in   
-      ignore @@ Llvm.build_store sexp_code zero_ptr builder;
-      ignore @@ Llvm.build_store lsize one_ptr builder;
+
+    | TAG (tag_name, arity) ->
+      let llfunc = self#get_llfunction ".tag" 4 in
+      let _ = print_endline ".tag created" in 
+      let str_size = Llvm.const_int int_type @@ String.length tag_name + 1 in 
+      let larity = Llvm.const_int int_type arity in 
+      let ltag = Llvm.build_global_stringptr tag_name (get_name ()) builder in
       let sexp = func#store in 
-      let ptr_to_sexp = Llvm.build_inttoptr sexp int_ptr_type (get_name () ^ "_sexp") builder in 
-      let ptr_to_sexp = Llvm.build_gep ptr_to_sexp [| mtwo |] (get_name ()) builder in
-      let i8ptr_to_sexp = Llvm.build_bitcast ptr_to_sexp i8_ptr_type (get_name ()) builder in
-      let i8_ptr_comparison_array = Llvm.build_bitcast comparison_array i8_ptr_type (get_name()) builder in 
-      let comp = Llvm.build_call f [| i8ptr_to_sexp; i8_ptr_comparison_array; (Llvm.const_int int_type @@ int_size * 2) |] (get_name()) builder in 
-      let cond = Llvm.build_icmp Ne comp zero (get_name()) builder in
-      let block_3 = self#insert_block func (get_name() ^ "_tagblock_3") in 
-      let block_2 = self#insert_block func (get_name() ^ "_tagblock_2_1") in 
-      let block_1 = self#insert_block func (get_name() ^ "_tagblock_1") in 
-      let _ = Llvm.build_cond_br  cond block_1 block_2 builder in 
-      (*  alrady false *)
-      print_endline @@ "position at end: tag " ^ tag_name ^ " tagblock_1"; 
-      let _ = Llvm.position_at_end block_1 builder in
-      (* self#make_printf ("came to " ^ tag_name ^ "_tagblock_1: it is not equal sexp") func; *)
-      let _ = func#load zero in 
-      let _ = Llvm.build_br block_3 builder in
-      (* if correct compare tag *)
-      func#drop;
-      print_endline @@ "position at end: tag " ^ tag_name ^ " tagblock_2";
-      let _ = Llvm.position_at_end block_2 builder in
-      (* self#make_printf ("came to " ^ tag_name ^ "_tagblock_2: it is sexp and size is equal") func; *)
-      let ptr_ptr_string = Llvm.build_gep ptr_to_sexp [| mone |] (get_name ()) builder in
-      let ptr_string = Llvm.build_load ptr_ptr_string (get_name ()^"_str_st") builder in  
-      let ptr_string = Llvm.build_inttoptr ptr_string i8_ptr_type (get_name()) builder in  
-      let comparison_string = create_string tag_name in 
-      let int_ptr_string = Llvm.build_bitcast ptr_string int_ptr_type (get_name()) builder in  
-      let ptr_string_size = Llvm.build_gep int_ptr_string [| mone |] (get_name()) builder in
-      let string_size = Llvm.build_load ptr_string_size (get_name()) builder in
-      let cond = Llvm.build_icmp Ne string_size (Llvm.const_int int_type (String.length tag_name + 1)) (get_name ()) builder in  
-      let block_2_2 = self#insert_block func (get_name() ^ "_tagblock_2_2") in 
-      let _ = Llvm.build_cond_br cond block_1 block_2_2 builder in
-      print_endline @@ "position at end: tag " ^ tag_name ^ " tagblock_2_2";
-      let _ = Llvm.position_at_end block_2_2 builder in
-      (* self#make_printf ("came to " ^ tag_name ^ "_tagblock_2_2: size of tags are equal") func; *)
-      let ptr_string_i8 = Llvm.build_bitcast ptr_string i8_ptr_type (get_name ()) builder in  
-      let comparison_string_i8 = Llvm.build_bitcast comparison_string i8_ptr_type (get_name ()) builder in  
-      
-      let comp = Llvm.build_call f [| ptr_string_i8; comparison_string_i8; (Llvm.const_int int_type (String.length tag_name + 1)) |] (get_name ()) builder in  
-      let cond = Llvm.build_icmp Eq comp zero (get_name ()) builder in 
-      let cond = Llvm.build_intcast cond int_type (get_name ()) builder in  
-      let _ = func#load cond in  
-      let _ = Llvm.build_alloca int_type (get_name () ^ "_tag_end") builder in
-      let _ = Llvm.build_br block_3 builder in
-      print_endline @@ "position at end: tag " ^ tag_name ^ " tagblock_3";
-      Llvm.position_at_end block_3 builder 
-      
+      let t = Llvm.build_call llfunc [| larity; ltag; str_size; sexp |] (get_name()) builder in 
+      ignore @@ func#load t; 
     | ARRAY size -> print_endline @@ "array " ^ string_of_int size
         (* print_endline (">>> Check array with size " ^ string_of_int size);
         let structure_type_ptr = Llvm.pointer_type @@ Llvm.struct_type context [| int_type; i8_ptr_type |] in

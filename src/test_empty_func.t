@@ -1,7 +1,26 @@
-  $ cat > curry1.lama <<-EOF
-  > fun f() {var x, y; y := 3; x:= (2 + y); x}
-  > f()
+  $ cat > test_array.lama <<-EOF
+  > public fun split (n, k) {
+  > var a = makeArray (k),
+  >       m = n;
+  > for var i = 0;, i < k, i := i + 1
+  > do
+  >   if i == k - 1
+  >   then a[i] := m
+  >   else 
+  >     a [i] := random (m - k + i + 1) + 1;
+  >     m := m - a [i]
+  >   fi
+  > od;
+  > a
+  > }
   > EOF
-  $ cat curry1.lama
-  fun f() {2}
-  $ ./Driver.exe -ds -llvmsm curry1.lama -o curry1.o
+  $ cat test_array.lama
+  var samples = [ {"a", "b", "c"}, "string", [], Fruit ("apple"), fun () {skip} ];
+  $ lamac -ds test_array.lama
+  $ ./Driver.exe -sml test_array.sm -o curry1.o
+  $ cp "output.ll" "../../../../../src/array1.ll"
+  $ llc output.ll -o output1.s
+  $ clang -no-pie stdlib.o output.o || echo $?
+  $ ./a.out 
+  $  gcc -no-pie output1.s stdlib.o -o a.out
+  $ ./a.out 

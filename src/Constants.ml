@@ -15,38 +15,19 @@ let mthree = Llvm.const_int int_type @@ -3
 let lfalse = Llvm.const_int i1_type 0
 let ltrue = Llvm.const_int i1_type 1
 let last_bit = 31
-let builtIns = ["Lprintf"; "Lstrcmp"]
-
+let builtIns = [".tag"; ".string"]
+let cFunctions = ["Lprintf"; "Lstrcmp"]
 let array_code = Llvm.const_int int_type 1
 let sexp_code = Llvm.const_int int_type 2
 let string_code = Llvm.const_int int_type 3
 
-module BuiltInsMapType = Map.Make(String)
-type args_type = 
-  INT | INT_PTR | BITE_PTR
+module CFunctionType = Map.Make(String)
 
-let builtInsMap =
-  BuiltInsMapType.of_seq (List.to_seq [
-    ("Lprintf", ("printf",  [| BITE_PTR |]));
-    ("Lstrcmp", ("strcmp",  [| BITE_PTR ; BITE_PTR |]));
-  ])
-
-let get_function_signature s = 
-  (* let (name, signat) = BuiltInsMapType.find s builtInsMap in 
-  let casted_array = Array.map (function x -> match x with 
-  | INT -> int_type
-  | INT_PTR -> int_ptr_type
-  | BITE_PTR -> i8_ptr_type) signat in *)
-  let (name, _) = BuiltInsMapType.find s builtInsMap in
-  let function_type = 
-    match name with 
-    | "printf" -> Llvm.var_arg_function_type int_type [|i8_ptr_type|]   
-    | "strcmp" -> Llvm.function_type int_type [| i8_ptr_type; i8_ptr_type |]
-    | _ -> failwith "No such function" in 
-  (name, function_type) 
- 
-let lamaFunctions = [".array"]
-
+let get_cfunction_signature s = 
+    match s with 
+    | "Lprintf" -> ("printf", Llvm.var_arg_function_type int_type [|i8_ptr_type|])   
+    | "Lstrcmp" -> ("strcmp", Llvm.function_type int_type [| i8_ptr_type; i8_ptr_type |])
+    | _ -> failwith "No such function"
 let memcpy_type = Llvm.function_type (Llvm.void_type context) [| i8_ptr_type; i8_ptr_type; int_type; i1_type |]
 let memcpy_name = "llvm.memcpy.p0i8.p0i8.i64"
 let memcmp_type = Llvm.function_type int_type [| i8_ptr_type; i8_ptr_type; int_type |]
