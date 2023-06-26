@@ -74,14 +74,14 @@ let create_string s =
 let create_array n (func : function_c) = 
   let full_size = Llvm.const_int int_type (n + 2) in
   let array_size = Llvm.const_int int_type n in
-  let array = Llvm.build_array_alloca int_type full_size (get_name() ^ "_array") builder in
+  let array = Llvm.build_array_malloc int_type full_size (get_name() ^ "_array") builder in
   (* setting type and size *)
   let zero_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
   let one_ptr = Llvm.build_gep array [| one |] (get_name ()) builder in
   ignore @@ Llvm.build_store  array_code zero_ptr builder;
   ignore @@ Llvm.build_store   array_size one_ptr builder;
   for variable = 2 to n + 1 do
-    let num = Llvm.const_int int_type variable in
+    let num = Llvm.const_int int_type (n + 3 - variable) in
     let value_ptr = Llvm.build_gep array [| num |] (get_name ()) builder in
     let value = func#store in
     func#drop;
@@ -136,10 +136,10 @@ class global_c = object (self)
   val mutable extern_functions = StringSet.empty
   val mutable globals = StringMap.empty
 
-  method add_function_insns (name: string) (desc : SM.prg) = 
-    functions_prg <- StringMap.add name desc functions_prg
+  method add_function_insns (name: string) (desc : SM.prg) (nargs : int) = 
+    functions_prg <- StringMap.add name (desc, nargs) functions_prg
 
-  method get_llfunction  (name : string) (args : int) =
+  method get_llfunction  (name : string)  =
     (* (val_type : variable) *)
     print_endline @@ "get_llfunction called" ^ name;
     if self#has_extern_function name then (
@@ -148,8 +148,11 @@ class global_c = object (self)
        Llvm.declare_function name funType  main_module)
     else 
     (if not @@ StringMap.mem name functions then 
-      self#create_function name args;
-    (StringMap.find name functions)#get_function
+      (let curblock = Llvm.insertion_block builder in 
+      ignore @@ self#create_function name;
+      ignore @@ Llvm.position_at_end curblock builder;
+      ignore @@ print_endline @@ "create function called " ^ name);
+      (StringMap.find name functions)#get_function
     )
 
   method cast_to_llvalue (value : Llvm.llvalue) (t: args_type) = 
@@ -183,11 +186,10 @@ class global_c = object (self)
     List.iter (function x -> self#build_one x func ) @@ get_args ()
 
 
-  method create_function (name : string) (args : int) = 
-    print_endline @@ "create function called " ^ name;
-    let llfunc = LL.define_function name args  in 
-    let func = new function_c name llfunc in
-    let prg = StringMap.find name functions_prg in  
+  method create_function (name : string) = 
+    let (prg, nargs) = StringMap.find name functions_prg in  
+    let llfunc = LL.define_function name @@ nargs + 1 in 
+    let func = new function_c name llfunc @@ nargs + 1 in
     self#define_labels prg func;
     List.iter (function x -> self#build_one x func) prg;
     functions <- StringMap.add name func functions
@@ -315,8 +317,20 @@ class global_c = object (self)
         | Local i ->  let value = func#store_local i in 
                       ignore @@ func#load value  
         | Arg i ->
-          ignore @@ func#load (Llvm.param func#get_function i)
-        | Access _ -> failwiths "access load not implemented"
+          ignore @@ func#load @@ func#get_param i 
+        | Access i -> 
+          print_endline "1"; 
+          let cl_var = func#get_closure_variables in 
+          print_endline "1"; 
+          let li = Llvm.const_int int_type i in 
+          print_endline "1"; 
+          let cl_var = Llvm.build_inttoptr cl_var int_ptr_type (get_name ()) builder in 
+          print_endline "1"; 
+          let iptr = Llvm.build_gep cl_var [| li |] (get_name ()) builder in 
+          print_endline "1"; 
+          let loaded = Llvm.build_load  iptr (get_name()) builder in 
+          print_endline "1"; 
+          ignore @@ func#load loaded
         | Fun _ -> failwiths "function load not implemented"
         )
         (* (match desig with
@@ -368,7 +382,7 @@ class global_c = object (self)
       func#drop;
       let array = func#store in
       func#drop;
-      let array = Llvm.build_inttoptr array (int_ptr_type) (get_name ()) builder in
+      let array = Llvm.build_inttoptr array (int_ptr_type) (get_name () ^ "_elem") builder in
       let value_ptr = Llvm.build_gep array [| num |] (get_name ()) builder in
       ignore @@ func#load_from_ptr value_ptr 
     | FLABEL s -> 
@@ -466,8 +480,52 @@ class global_c = object (self)
       print_endline "end end"; 
         (* print_endline ">>> End procedure definition"; *)
     | CLOSURE (name, args) ->
-        print_endline (">>> Closure: " ^ name);
-        print_endline "Not implemented\n"
+      (* let curblock = Llvm.insertion_block builder in  *)
+      let closure = self#get_llfunction name  in 
+      (* Llvm.position_at_end curblock builder; *)
+      let closure = Llvm.build_ptrtoint closure int_type (get_name ()) builder in 
+      let array = Llvm.build_array_malloc int_type two (get_name ()) builder in 
+      let cl_var_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in 
+      let cl_ptr = Llvm.build_gep array [| one |] (get_name ()) builder in 
+      let sz = List.length args in 
+
+      (* making an array *)
+      let full_size = Llvm.const_int int_type (sz + 2) in
+      let array_size = Llvm.const_int int_type sz in
+      let sm_array = Llvm.build_array_malloc int_type full_size (get_name() ^ "_array") builder in
+      (* setting type and size *)
+      let zero_ptr = Llvm.build_gep sm_array [| zero |] (get_name ()) builder in
+      let one_ptr = Llvm.build_gep sm_array [| one |] (get_name ()) builder in
+      ignore @@ Llvm.build_store array_code zero_ptr builder;
+      ignore @@ Llvm.build_store array_size one_ptr builder;
+      let args = ref args in 
+      for variable = 2 to sz + 1 do
+        let num = Llvm.const_int int_type variable in
+        let value_ptr = Llvm.build_gep sm_array [| num |] (get_name ()) builder in
+        let value = (match !args with 
+        a:: b -> args := b; a
+        | [] -> failwith "empty args") in
+        let value = (match value with 
+        | Global s -> let global =  Llvm.declare_global int_type s main_module in 
+          Llvm.build_load global (get_name()) builder 
+        | Local i -> func#store_local i
+        | Arg i ->
+          func#get_param i
+        | Access i -> 
+          let cl_var = func#get_closure_variables in 
+          let li = Llvm.const_int int_type i in 
+          let iptr = Llvm.build_gep cl_var [| li |] (get_name ()) builder in 
+          Llvm.build_load  iptr (get_name()) builder
+        | Fun _ -> failwiths "function load not implemented"
+        )  in
+        ignore @@ Llvm.build_store value value_ptr builder
+      done;
+      let sm_array = Llvm.build_gep sm_array [| two |] (get_name ()) builder in
+      let sm_array = Llvm.build_ptrtoint sm_array int_type (get_name ()) builder in
+      let _ = Llvm.build_store sm_array cl_var_ptr  builder in
+      let _ = Llvm.build_store closure cl_ptr   builder in
+      let array = Llvm.build_ptrtoint array int_type (get_name ()) builder in 
+      ignore @@ func#load array
     | PROTO (name, ret) ->
         print_endline (">>> Proto closure: " ^ name ^ " " ^ ret);
         print_endline "Not implemented\n"
@@ -479,7 +537,42 @@ class global_c = object (self)
         print_endline "Not implemented\n"
     | CALLC (arity, is_tail_call) ->
       print_endline (">>> Call closure with arity " ^ string_of_int arity ^ " (tail call: " ^ string_of_bool is_tail_call ^ ")");
-      print_endline "Not implemented\n"
+      (* ignore @@ func#load_from_ptr value_ptr  *)
+      let args = ref [] in 
+      let () =
+        for _ = 1 to arity do
+          print_endline "took arg";
+          let value = func#store in
+          args := value :: !args;
+          func#drop
+        done in 
+      let curblock = Llvm.insertion_block builder in 
+      print_endline @@ "position at end: after closure call";
+      let name =  get_name () in
+      let closure = func#store in 
+      print_endline "1";
+      let array = Llvm.build_inttoptr closure (int_ptr_type) (get_name ()) builder in
+      print_endline "2";
+      let closure_variables_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
+      print_endline "3";
+      let closure_variables = Llvm.build_load closure_variables_ptr (get_name ()) builder in 
+      print_endline "4";
+      let args = Array.of_list (closure_variables :: !args) in
+      print_endline "5";
+      let function_t = Llvm.function_type int_type ( Array.make (arity + 1) int_type) in
+      print_endline "6";
+      let closure_ptr =  Llvm.build_gep array [| one |] (get_name ()) builder in
+      print_endline "7";
+      let closure = Llvm.build_load closure_ptr (get_name ()) builder in 
+      print_endline "8";
+      let closure = Llvm.build_inttoptr closure (Llvm.pointer_type function_t) (get_name ()) builder in 
+      print_endline "9";
+      let var = Llvm.build_call closure args name builder in 
+      print_endline "10";
+      Llvm.position_at_end curblock builder;
+      (* ignore @@ Llvm.build_ret zero builder  *)
+      (* ignore @@ func#load var *)
+
     | CALL (func_name, arity, is_tail_call) ->
       let () = print_endline (">>> Call function/procedure " ^ func_name ^ " with arity " ^ string_of_int arity ^ " (tail call: " ^ string_of_bool is_tail_call ^ ")")  in
       (match func_name with 
@@ -495,13 +588,15 @@ class global_c = object (self)
           args := value :: !args;
           func#drop
         done in 
-      let curblock = Llvm.insertion_block builder in 
-      let llvm_func =  self#get_llfunction func_name arity in
+      (* let curblock = Llvm.insertion_block builder in  *)
+      let llvm_func =  self#get_llfunction func_name in
       let _ = if self#has_extern_function func_name then
-      args := self#cast_args func_name !args in 
-      let args = Array.of_list !args in
+      args := self#cast_args func_name !args  
+      else args := zero :: !args in 
+      (* add zero instead of closure variables *)
+      let args = Array.of_list !args in 
       print_endline @@ "position at end: after call";
-      Llvm.position_at_end curblock builder;
+      (* Llvm.position_at_end curblock builder; *)
       let name =  get_name () in
       let var = Llvm.build_call llvm_func args name builder in 
       ignore @@ func#load var)
@@ -588,7 +683,7 @@ class global_c = object (self)
         print_endline (">>> Check pattern " ^ SM.show_patt patt);
         print_endline "Not implemented\n"
     | FAIL (loc, leave_value) ->
-      let printf = self#get_llfunction "Lprintf" 0 in 
+      let printf = self#get_llfunction "Lprintf" in 
       let (a, b) = loc in 
       let str = Llvm.build_global_stringptr "program failed" (get_name()) builder in 
       ignore @@ Llvm.build_call printf [|str|] (get_name ()) builder
@@ -604,18 +699,19 @@ class global_c = object (self)
 
     method cut_functions (insns:SM.prg) =
       let s = ref "" in 
+      let n_args = ref 0 in 
       let finsns = ref [] in
       List.iter (function (x : SM.insn) -> 
         match x with
         | BEGIN (name, nargs, nlocals, closure, args, scopes) ->
           s:= name;
+          n_args := nargs;
           finsns := [x];
         | END -> finsns := x :: !finsns;
           finsns := List.rev !finsns; 
-          self#add_function_insns !s !finsns 
+          self#add_function_insns !s !finsns !n_args
         | EXTERN s -> self#add_extern_function s 
         | _ ->  finsns := x :: !finsns
-        
       ) insns
 end
 
@@ -623,7 +719,7 @@ end
 let build (insns:SM.prg) =
   let global = new global_c in 
   global#cut_functions insns;
-  global#create_function "main" 2;
+  global#create_function "main";
   print_endline "main created";
   let filename = "output.ll" in 
   Llvm.print_module filename main_module;
@@ -634,3 +730,4 @@ let build (insns:SM.prg) =
   Llvm.dump_module main_module
 
 let%test _ = true
+

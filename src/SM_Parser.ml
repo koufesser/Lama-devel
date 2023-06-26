@@ -4,11 +4,18 @@ open Language
 let parse_designation (line : string list) : Value.designation =
   match List.hd line with
   | "Global" -> Global (List.nth line 1)
-  | "Local"  -> Local (int_of_string (List.nth line 1))
+  | "Local"  -> 
+    (* List.iter (function x -> print_endline @@ "var: " ^ x) line; *)
+    print_endline @@ "size: " ^ string_of_int (List.length line); 
+    Local (int_of_string (List.nth line 1))
   | "Arg"    -> Arg (int_of_string (List.nth line 1))
   | "Access" -> Access (int_of_string (List.nth line 1))
   | "Fun"    -> Fun (List.nth line 1)
   | _        -> raise (Invalid_argument "Invalid designation")
+
+let parse_designation_list line = 
+  let vars = Str.split (Str.regexp ";") line in 
+  List.map (function x -> parse_designation @@ List.filter (fun str -> str <> "") @@ Str.split (Str.regexp "[ ()]") x) vars  
 
 let print_list l = 
   let rec print_list_ l = 
@@ -43,7 +50,8 @@ let parse_insn (line : string list) (wline : string) =
   | "BEGIN"  -> BEGIN (List.nth line 1, int_of_string (List.nth line 2), int_of_string (List.nth line 3), [], [], [])
   | "END"    -> END
   (* | "CLOSURE" -> CLOSURE (List.nth line 1, parse_designation_list @@ List.nth line 2) *)
-  | "CLOSURE" -> CLOSURE (List.nth line 1, [])
+  | "CLOSURE" -> let vars =  List.nth (Str.split (Str.regexp "\]") @@ List.nth (Str.split (Str.regexp "\[") wline) 1) 0 in 
+   CLOSURE (List.nth line 1, parse_designation_list vars)
   | "PROTO"  -> PROTO (List.nth line 1, List.nth line 2)
   | "PPROTO" -> PPROTO (List.nth line 1, List.nth line 2)
   | "PCALLC" -> PCALLC (int_of_string (List.nth line 1), bool_of_string (List.nth line 2))

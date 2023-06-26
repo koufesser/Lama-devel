@@ -141,22 +141,32 @@ class label_c (label : string) (block : Llvm.llbasicblock)  = object
   method is_set = not (depth = None)
 end
 
-class function_c (name:string)  (func : Llvm.llvalue)  = object (self)
+class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (self)
   val mutable was_opcode = false
   val mutable free_ptr : Llvm.llvalue list = []
   val mutable stack : Llvm.llvalue list = []
   (* val mutable type_stack : variable list = [] *)
   val mutable locals = IntMap.empty
   val mutable locals_type = IntMap.empty 
-
+  val mutable nargs = 0
   val mutable labels_map = StringMap.empty
 
   val mutable depth = 0
   val mutable reachable = true
 
+  method set_nargs n =
+    nargs <- n 
+
+  method get_closure_variables = 
+    Llvm.param func 0 
+  
+  method get_param i = 
+    Llvm.param func @@ i + 1 
+
   method set_reachable s = 
     reachable <- s
 
+  method get_args_number = args
   method is_reachable = reachable
   method get_opcode = was_opcode
   method set_opcode s = 

@@ -1,8 +1,8 @@
   $ cat > test_array.lama <<-EOF
-  > var samples = [ "string 1", 2, "string2"];
-  > printf ("%s\n", samples[0]);
-  > printf ("%d\n", samples[1]);
-  > printf ("%s\n", samples[2])
+  > fun f() {
+  > fun (z) {printf("i am working")}
+  > }
+  > f()(1)
   > EOF
   $ cat test_array.lama
   var samples = [ {"a", "b", "c"}, "string", [], Fruit ("apple"), fun () {skip} ];
@@ -14,11 +14,4 @@
   $ ./a.out 
   $  gcc -no-pie output1.s stdlib.o -o a.out
   $ ./a.out 
-
-var samples = [
-  {"a", "b", "c"},
-  "string",
-  [],
-  Fruit ("apple"),
-  fun () {skip}
-];
+  
