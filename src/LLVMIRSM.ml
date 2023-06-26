@@ -550,25 +550,15 @@ class global_c = object (self)
       print_endline @@ "position at end: after closure call";
       let name =  get_name () in
       let closure = func#store in 
-      print_endline "1";
       let array = Llvm.build_inttoptr closure (int_ptr_type) (get_name ()) builder in
-      print_endline "2";
       let closure_variables_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
-      print_endline "3";
       let closure_variables = Llvm.build_load closure_variables_ptr (get_name ()) builder in 
-      print_endline "4";
       let args = Array.of_list (closure_variables :: !args) in
-      print_endline "5";
       let function_t = Llvm.function_type int_type ( Array.make (arity + 1) int_type) in
-      print_endline "6";
       let closure_ptr =  Llvm.build_gep array [| one |] (get_name ()) builder in
-      print_endline "7";
       let closure = Llvm.build_load closure_ptr (get_name ()) builder in 
-      print_endline "8";
       let closure = Llvm.build_inttoptr closure (Llvm.pointer_type function_t) (get_name ()) builder in 
-      print_endline "9";
       let var = Llvm.build_call closure args name builder in 
-      print_endline "10";
       Llvm.position_at_end curblock builder;
       (* ignore @@ Llvm.build_ret zero builder  *)
       ignore @@ func#load var
