@@ -123,35 +123,37 @@ let get_name () =
   string_of_int @@ !counter - 1
   
 class label_c (label : string) (block : Llvm.llbasicblock)  = object 
-  val mutable depth : int option = None
+  val mutable stack_fullness : int option = None
   val mutable  option = None 
   method set_depth (n: int) = 
-    depth <- Some n
+    stack_fullness <- Some n
 
   method get_depth = 
-    match depth with 
+    match stack_fullness with 
     | Some x -> x 
     | None -> failwith "Unreachable code"
   method get_name = label
   method assert_depth c =
-    match depth with 
+    match stack_fullness with 
     |  Some x -> if x != c then failwith "Different depths" else ()
-    | None -> depth <- Some c 
+    | None -> stack_fullness <- Some c 
   method get_block = block
-  method is_set = not (depth = None)
+  method is_set = not (stack_fullness = None)
 end
 
 class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (self)
   val mutable was_opcode = false
-  val mutable free_ptr : Llvm.llvalue list = []
-  val mutable stack : Llvm.llvalue list = []
-  (* val mutable type_stack : variable list = [] *)
+  (* val mutable free_ptr : Llvm.llvalue list = [] *)
+  (* val mutable stack : Llvm.llvalue list = [] *)
+  val mutable rstack : Llvm.llvalue = zero
+  val mutable stack_fullness = 0
+  (* val mutable type_stack : variable list = [] *) 
   val mutable locals = IntMap.empty
   val mutable locals_type = IntMap.empty 
   val mutable nargs = 0
   val mutable labels_map = StringMap.empty
 
-  val mutable depth = 0
+  (* val mutable depth = 0 *)
   val mutable reachable = true
 
   method set_nargs n =
@@ -174,16 +176,18 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
   method get_name = name
   method get_function = func
   method set_depth n =
-    while (depth < n) do 
+    while (stack_fullness < n) do 
       ignore @@ self#get_free
     done;
-    while (depth > n) do 
-      ignore @@ self#get_taken
+    while (stack_fullness > n) do 
+      ignore @@ self#drop
     done
 
   method get_free = 
     print_endline "get_free called";
-    depth <- depth +  1;
+    stack_fullness <- stack_fullness + 1;
+    Llvm.build_gep rstack [| Llvm.const_int int_type @@ stack_fullness - 1 |] (get_name()) builder
+    (* depth <- depth +  1;
     match free_ptr with 
     hd :: tl -> 
       free_ptr <- tl;
@@ -192,44 +196,50 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
     | [] -> 
       let alloca = create_entry_block_alloca (get_name()) func in
       stack <- alloca :: stack;
-      alloca
+      alloca *)
 
-  method get_taken = 
+  (* method get_taken = 
     print_endline "get_taken_ptr called";
     match stack with 
     | hd :: _ ->
       self#drop;
       hd
-    | [] -> failwith "No values on ptr stack (get)"
+    | [] -> failwith "No values on ptr stack (get)" *)
 
   method get_front = 
     print_endline "get_front called";
-    match stack with 
+    Llvm.build_gep rstack [| Llvm.const_int int_type (stack_fullness - 1) |] (get_name()) builder
+    (* match stack with 
     | hd :: _ ->
       hd
-    | [] -> failwith "No values on ptr stack (get)"
+    | [] -> failwith "No values on ptr stack (get)" *)
+
 
   method drop = 
-    match stack with 
+    (* match stack with 
     | hd :: tl ->
       stack <- tl;
       free_ptr <- hd :: free_ptr;
       depth <- depth - 1
-    | [] -> failwith "No values on ptr stack (get)"
+    | [] -> failwith "No values on ptr stack (get)" *)
+    stack_fullness <- stack_fullness - 1;
+    assert (stack_fullness >= 0)
 
+  method create_stack size = 
+    let builder = Llvm.builder_at context (Llvm.instr_begin (Llvm.entry_block func)) in
+    rstack <- Llvm.build_array_alloca int_type (Llvm.const_int int_type size) (get_name()) builder 
 
   method load (value : Llvm.llvalue)  = 
-    Llvm.build_store value (self#get_free) builder
-  
+    let ptr = self#get_free in 
+    Llvm.build_store value ptr builder
+
   method load_from_ptr (value : Llvm.llvalue) =
     let value = Llvm.build_load value (get_name ()) builder in 
     Llvm.build_store value (self#get_free) builder
 
   method store = 
-    (* let var_type = List.hd type_stack in  *)
-    (* let value_type = create_lltype var_type in  *)
-    (* type_stack <- List.tl type_stack; *)
-    let stored = Llvm.build_load  self#get_front (get_name ()) builder in 
+    let ptr = self#get_front in 
+    let stored = Llvm.build_load ptr (get_name ()) builder in 
     stored
 
   method get_local_ptr name = 
@@ -255,19 +265,18 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
     ignore @@ self#load value
 
   method swap = 
-    match stack with
-    | hd::tl ->
       let a = self#store in 
+      self#drop;
       let b = self#store in 
+      self#drop;
       ignore @@ self#load a;
       ignore @@ self#load b
-    | [] -> failwith "No values on ptr stack (dup)"
-
-  method get_depth = depth
+      
+  method get_depth = stack_fullness
 
   method update_label_depth (name:string) (depth: int) = 
     let label = StringMap.find name labels_map in 
-    let () = label#set_depth depth in
+    let () = label#set_depth stack_fullness in
     labels_map <- StringMap.update name  (fun _ -> Some label) labels_map
 
   method add_label (label : label_c) =

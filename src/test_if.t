@@ -17,6 +17,8 @@
   f (0)
   
   [1]
-  $ gcc -fPIE stdlib.o output.o || echo $?
-  $ ./a.out || echo $?
+  $ cp "output.ll" "../../../../../src/array1.ll"
+  $ llc output.ll -o output1.s
+  $ clang -no-pie stdlib.o output.o || echo $?
+  $ ./a.out 
   2

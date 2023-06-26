@@ -191,6 +191,7 @@ class global_c = object (self)
     let llfunc = LL.define_function name @@ nargs + 1 in 
     let func = new function_c name llfunc @@ nargs + 1 in
     self#define_labels prg func;
+
     List.iter (function x -> self#build_one x func) prg;
     functions <- StringMap.add name func functions
 
@@ -228,7 +229,10 @@ class global_c = object (self)
     done  *)
 
   method define_labels (insns:SM.prg) (func : function_c) = 
+  let fullness = ref 0 in 
+  let max_size = ref 0 in   
   List.iter (function (x : SM.insn) -> 
+    max_size := max !max_size !fullness;
     match x with
     | BEGIN (name, nargs, nlocals, closure, args, scopes) -> 
       let llvm_func = func#get_function in 
@@ -256,10 +260,15 @@ class global_c = object (self)
       let block =  Llvm.append_block context name llvm_function in
       Llvm.position_at_end block builder
     | TAG (_, _) ->  append_blocks 2 func *)
-
-    | _ -> ()
-  
-    ) insns
+    | LD _ | DUP | CONST _ | STRING _-> fullness := !fullness + 1
+    | DROP | BINOP _ ->  fullness := !fullness - 1
+    | CALL (_, arity, _) -> fullness := !fullness - arity + 1 
+    | CALLC (arity, _) | PCALLC (arity, _) -> fullness := !fullness - arity
+    | _ -> ();
+    max_size := max !max_size !fullness
+    ) insns;
+    print_endline @@ "size of stack: " ^ string_of_int !max_size;
+    func#create_stack !max_size
   
   method build_one (insn : SM.insn) (func : function_c)  = 
     match insn with
@@ -474,7 +483,7 @@ class global_c = object (self)
       (* print_function_c func; *)
     | END ->
       print_endline "end";
-      let value = Llvm.build_load func#get_taken (get_name ()) builder in
+      let value = func#store in
       func#set_opcode true;
       ignore @@ Llvm.build_ret value builder;
       print_endline "end end"; 
