@@ -571,7 +571,7 @@ class global_c = object (self)
       print_endline "10";
       Llvm.position_at_end curblock builder;
       (* ignore @@ Llvm.build_ret zero builder  *)
-      (* ignore @@ func#load var *)
+      ignore @@ func#load var
 
     | CALL (func_name, arity, is_tail_call) ->
       let () = print_endline (">>> Call function/procedure " ^ func_name ^ " with arity " ^ string_of_int arity ^ " (tail call: " ^ string_of_bool is_tail_call ^ ")")  in
