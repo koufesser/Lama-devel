@@ -14,11 +14,3 @@
   $ ./a.out 
   $  gcc -no-pie output1.s stdlib.o -o a.out
   $ ./a.out 
-
-var samples = [
-  {"a", "b", "c"},
-  "string",
-  [],
-  Fruit ("apple"),
-  fun () {skip}
-];

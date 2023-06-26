@@ -242,6 +242,11 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
     let stored = Llvm.build_load ptr (get_name ()) builder in 
     stored
 
+  method store_and_drop_n  n = 
+    stack_fullness <- stack_fullness - n;
+    Llvm.build_gep rstack [| Llvm.const_int int_type @@ stack_fullness |] (get_name()) builder
+
+
   method get_local_ptr name = 
     if not @@ IntMap.mem name locals then (
     let builder = Llvm.builder_at context (Llvm.instr_begin (Llvm.entry_block func)) in

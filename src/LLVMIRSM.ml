@@ -79,15 +79,15 @@ let create_array n (func : function_c) =
   let zero_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
   let one_ptr = Llvm.build_gep array [| one |] (get_name ()) builder in
   ignore @@ Llvm.build_store  array_code zero_ptr builder;
-  ignore @@ Llvm.build_store   array_size one_ptr builder;
-  for variable = 2 to n + 1 do
-    let num = Llvm.const_int int_type (n + 3 - variable) in
-    let value_ptr = Llvm.build_gep array [| num |] (get_name ()) builder in
-    let value = func#store in
-    func#drop;
-    ignore @@ Llvm.build_store value value_ptr builder
-  done;
-  Llvm.build_gep array [| two |] (get_name ()) builder
+  ignore @@ Llvm.build_store array_size one_ptr builder;
+  let array_start  = Llvm.build_gep array [| two |] (get_name ()) builder in 
+  let values = func#store_and_drop_n n in 
+  let ar_st_i8 = Llvm.build_bitcast  array_start i8_ptr_type (get_name ()) builder in 
+  let values_i8 = Llvm.build_bitcast  values i8_ptr_type (get_name ()) builder in 
+  let size = Llvm.const_int int_type (n * 8) in 
+  let f = Llvm.declare_function memcpy_name memcpy_type main_module in 
+  let _ = Llvm.build_call f [| ar_st_i8; values_i8; size; lfalse |] "" builder in 
+  array_start 
 
 let create_sexp size (tag : string) (func : function_c) =   
   let full_size = Llvm.const_int int_type (size + 3) in
