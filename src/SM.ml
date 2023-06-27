@@ -868,7 +868,7 @@ object (self : 'self)
        | _                    -> self, []    
 end
   
-let compile cmd ((imports, infixes), p) =
+let compile ?(print = true) cmd ((imports, infixes), p)  =
   let rec pattern env lfalse = function
   | Pattern.Wildcard        -> env, false, [DROP]
   | Pattern.Named   (_, p)  -> pattern env lfalse p
@@ -1145,5 +1145,5 @@ let compile cmd ((imports, infixes), p) =
    *)
   (*Printf.eprintf "Before fix:\n%s\n" (show_prg prg);  *)
   let prg = fix_closures env prg in
-  cmd#dump_SM prg;
+  if print then cmd#dump_SM prg;
   prg

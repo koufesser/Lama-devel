@@ -6,7 +6,7 @@ let parse_designation (line : string list) : Value.designation =
   | "Global" -> Global (List.nth line 1)
   | "Local"  -> 
     (* List.iter (function x -> print_endline @@ "var: " ^ x) line; *)
-    print_endline @@ "size: " ^ string_of_int (List.length line); 
+    (* print_endline @@ "size: " ^ string_of_int (List.length line);  *)
     Local (int_of_string (List.nth line 1))
   | "Arg"    -> Arg (int_of_string (List.nth line 1))
   | "Access" -> Access (int_of_string (List.nth line 1))
@@ -46,10 +46,8 @@ let parse_insn (line : string list) (wline : string) =
   | "SLABEL" -> SLABEL (List.nth line 1)
   | "JMP"    -> JMP (List.nth line 1)
   | "CJMP"   -> CJMP (List.nth line 1, List.nth line 2)
-  (* | "BEGIN"  -> BEGIN (List.nth line 1, int_of_string (List.nth line 2), int_of_string (List.nth line 3), parse_designation_list @@ List.nth line 4, parse_string_list @@ List.nth line 5, parse_scope_list @@ List.nth line 6) *)
   | "BEGIN"  -> BEGIN (List.nth line 1, int_of_string (List.nth line 2), int_of_string (List.nth line 3), [], [], [])
   | "END"    -> END
-  (* | "CLOSURE" -> CLOSURE (List.nth line 1, parse_designation_list @@ List.nth line 2) *)
   | "CLOSURE" -> let vars =  List.nth (Str.split (Str.regexp "\]") @@ List.nth (Str.split (Str.regexp "\[") wline) 1) 0 in 
    CLOSURE (List.nth line 1, parse_designation_list vars)
   | "PROTO"  -> PROTO (List.nth line 1, List.nth line 2)

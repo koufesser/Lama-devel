@@ -215,7 +215,7 @@ let main =
     match cmd#get_mode with 
     | `SML -> 
       let insns = run_sm_parser cmd#get_infile  in 
-      print_endline (SM.show_prg insns);
+      (* print_endline (SM.show_prg insns); *)
       LLVMIRSM.build insns;
       exit 1 
     | _ -> 
@@ -225,18 +225,14 @@ let main =
       with Language.Semantic_error msg -> `Fail msg
     with
     | `Ok prog -> (
-      (* output_prog prog; *)
       cmd#dump_AST (snd prog);
       cmd#dump_source (snd prog);
       match cmd#get_mode with
       | `Default | `Compile -> 
-        print_endline "Mode: Default | Compile";  
         ignore @@ X86.build cmd prog
       | `BC -> 
-        print_endline "Mode: BC";
         SM.ByteCode.compile cmd (SM.compile cmd prog)
       | `Eval | `SM ->
-          print_endline "Mode: Eval | SM";
           let rec read acc =
             let rec read_helper acc i =
               let r = read_int () in
@@ -249,11 +245,9 @@ let main =
           let output =
             if cmd#get_mode = `Eval then 
               begin
-                print_endline "Eval mode";
                 Language.eval prog input
               end
             else begin 
-              print_endline "SM mode";
               SM.run (SM.compile cmd prog) input
             end
           in
@@ -263,7 +257,8 @@ let main =
           LLVMIR.build cmd prog;
           exit 1
       | `LLVM_SM ->
-          let insns  = SM.compile cmd prog in
+          let insns  = SM.compile cmd prog ~print:false in
+          print_endline "it is not here";
           LLVMIRSM.build insns;
           exit 1 
       | _ -> failwith "Not supposed to happen"
