@@ -5,7 +5,7 @@
 
 (library
  (name liba)
- (modules CConv Language Pprinter stdpath version X86 SM LL LLVMIR LLVMIRSM Function_c SM_Parser Constants)
+ (modules CConv Language Pprinter stdpath version X86 SM LL LLVMIRSM Function_c SM_Parser Constants)
  (libraries
   GT
   ostap
@@ -36,7 +36,6 @@
    ((pps ppx_inline_test ppx_expect)
     CConv
     LL
-    LLVMIR
     LLVMIRSM 
     Function_c
     SM_Parser

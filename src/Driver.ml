@@ -196,7 +196,8 @@ class options args =
       | Some _ -> (
           match !mode with
           | `LLVM | `LLVM_SM | `Default -> ()
-          | _ -> Printf.printf "Output file option ignored in this mode.\n"));
+          | _ ->
+            Printf.printf "Output file option ignored in this mode.\n"));
       if !version then Printf.printf "%s\n" Version.version;
       if !help then Printf.printf "%s" help_string
 
@@ -252,10 +253,6 @@ let main =
             end
           in
           List.iter (fun i -> Printf.printf "%d\n" i) output
-      | `LLVM ->
-          Printf.printf "%s %d\n%!" __FILE__ __LINE__;
-          LLVMIR.build cmd prog;
-          exit 1
       | `LLVM_SM ->
           let insns  = SM.compile cmd prog ~print:false in
           print_endline "it is not here";

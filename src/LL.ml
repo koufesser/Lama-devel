@@ -10,8 +10,15 @@ module type S = sig
   val build_sub : ?name:string -> llvalue -> llvalue -> llvalue
   val build_mul : ?name:string -> llvalue -> llvalue -> llvalue
   val build_sdiv : ?name:string -> llvalue -> llvalue -> llvalue [@@inline]
-  val build_Sgt : ?name:string -> llvalue -> llvalue -> llvalue
-  val build_Slt : ?name:string -> llvalue -> llvalue -> llvalue
+  val build_urem : ?name:string -> llvalue -> llvalue -> llvalue
+  val build_eq : string -> ?name:string -> llvalue -> llvalue -> llvalue
+  val build_ne : string  -> ?name:string -> llvalue -> llvalue -> llvalue
+  val build_Sgt : string -> ?name:string -> llvalue -> llvalue -> llvalue
+  val build_Sge : string -> ?name:string -> llvalue -> llvalue -> llvalue
+  val build_Slt : string -> ?name:string  -> llvalue -> llvalue -> llvalue
+  val build_Sle : string -> ?name:string -> llvalue -> llvalue -> llvalue
+  val build_and : ?name:string -> llvalue -> llvalue -> llvalue
+
   (* ?? *)
 
   val build_ptrtoint : ?name:string -> llvalue -> lltype -> llvalue
@@ -44,9 +51,14 @@ let make builder context module_ =
     let build_sub ?(name = "") l r = build_sub l r name builder
     let build_mul ?(name = "") l r = build_mul l r name builder
     let build_sdiv ?(name = "") l r = build_sdiv l r name builder
-    let build_Sgt ?(name = "") l r = build_icmp Icmp.Sgt l r name builder
-    let build_Slt ?(name = "") l r = build_icmp Icmp.Slt l r name builder
-
+    let build_urem ?(name = "")  l r = build_urem l r name builder 
+    let build_eq name1 ?(name = "") l r = (build_zext (build_icmp Icmp.Eq l r name1 builder) int_type name builder) 
+    let build_ne name1 ?(name = "") l r = (build_zext (build_icmp Icmp.Ne l r name1 builder) int_type name builder)
+    let build_Sgt name1 ?(name = "") l r =  (build_zext (build_icmp Icmp.Sgt l r name1 builder) int_type name builder)
+    let build_Slt name1 ?(name = "") l r = (build_zext (build_icmp Icmp.Slt l r name1 builder) int_type name builder)
+    let build_Sge name1 ?(name = "") l r = (build_zext (build_icmp Icmp.Sge l r name1 builder) int_type name builder)
+    let build_Sle name1 ?(name = "") l r = (build_zext (build_icmp Icmp.Sle l r name1 builder) int_type name builder)
+    let build_and ?(name = "") l r = build_and l r name builder 
     let build_ptrtoint ?(name = "") e typ =
       Llvm.build_ptrtoint e typ name builder
 

@@ -1,6 +1,6 @@
 let context = Llvm.global_context ()
 
-let int_type = Llvm.i64_type context
+let int_type = Llvm.i32_type context
 let int_ptr_type = Llvm.pointer_type int_type
 let i8_type = Llvm.i8_type context 
 let i8_ptr_type = Llvm.pointer_type i8_type
@@ -31,6 +31,7 @@ let builtInsMap =
     ("Lwrite", ("printf",  [| BITE_PTR |])); 
     ("Lstrcmp", ("strcmp",  [| BITE_PTR ; BITE_PTR |]));
     ("Lread", ("__isoc99_scanf",  [| BITE_PTR |]));
+    ("Llength", ("strlen",  [| BITE_PTR |]));
   ])
 
 let get_function_signature s = 
@@ -45,6 +46,7 @@ let get_function_signature s =
     | "printf" -> Llvm.var_arg_function_type int_type [|i8_ptr_type|]   
     | "strcmp" -> Llvm.function_type int_type [| i8_ptr_type; i8_ptr_type |]
     | "__isoc99_scanf" -> Llvm.var_arg_function_type int_type [| i8_ptr_type |]
+    | "strlen" -> Llvm.function_type int_type [| i8_ptr_type |]
     | _ -> failwith "No such function" in 
   (name, function_type) 
  

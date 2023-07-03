@@ -2,6 +2,6 @@ var x, y, z;
 
 x := read (); 
 y := read (); 
-z = x * y * 3;
+z := x * y * 3;
 
 write (z)

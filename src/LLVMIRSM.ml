@@ -184,12 +184,11 @@ class global_c = object (self)
 
   method create_function (name : string) = 
     let (prg, nargs) = StringMap.find name functions_prg in  
-    let llfunc = LL.define_function name @@ nargs + 1 in 
+    let llfunc = LL.define_function name @@ nargs + 1 in
     let func = new function_c name llfunc @@ nargs + 1 in
+    functions <- StringMap.add name func functions; 
     self#define_labels prg func;
-
-    List.iter (function x -> self#build_one x func) prg;
-    functions <- StringMap.add name func functions
+    List.iter (function x -> self#build_one x func) prg
 
   method add_extern_function (func : string) = 
     extern_functions <- StringSet.add func extern_functions
@@ -250,14 +249,21 @@ class global_c = object (self)
       func#drop;
       let b_value  = func#store in
       func#drop;
+      let name = get_name () in 
       let operand, op_name =
       match op with
         | "+" -> (LL.build_add, "add")
         | "-" -> (LL.build_sub, "sub")
         | "/" -> (LL.build_sdiv, "div")
         | "*" -> (LL.build_mul, "mul")
-        | ">" -> (LL.build_Sgt, "sgt")
-        | "<" -> (LL.build_Slt, "slt")
+        | "%" -> (LL.build_urem, "urem")
+        | ">" -> (LL.build_Sgt name, "sgt")
+        | ">=" -> (LL.build_Sge name, "sge")
+        | "<" -> (LL.build_Slt name, "slt")
+        | "<=" -> (LL.build_Sle name, "sle")
+        | "==" -> (LL.build_eq name, "sle")
+        | "!=" -> (LL.build_ne name, "sle")
+        | "&&" -> (LL.build_and, "sle")
         | _ ->
             Format.kasprintf failwith
               "Only +,/,*,- are supported by now but %s appeared" op
@@ -308,7 +314,31 @@ class global_c = object (self)
         | Fun s     -> failwiths "trying to store in fun"
         )
     | STI -> failwith "STI"
-    | STA -> failwith "STA"
+    | STA -> 
+      let value =  func#store in
+      func#drop;
+      let i = func#store in
+      func#drop;
+      let array = func#store in
+      let nblock = find_next_block func in  
+      let block_string = self#insert_block func (get_name() ^ "_stablock_string") in 
+      let block_array = self#insert_block func (get_name() ^ "_stablock_array") in
+      let int_array = Llvm.build_inttoptr array int_ptr_type (get_name ()) builder in 
+      let type_ref = Llvm.build_gep int_array [| mtwo |] (get_name ()) builder in 
+      let array_type = Llvm.build_load type_ref (get_name ()) builder in 
+      let comp = Llvm.build_icmp Llvm.Icmp.Eq string_code array_type (get_name ()) builder in 
+      let _ = Llvm.build_cond_br comp block_string block_array builder in 
+      let _ = Llvm.position_at_end block_string builder in 
+      let i8_array = Llvm.build_inttoptr array i8_ptr_type (get_name()) builder in
+      let i8_value = Llvm.build_intcast value i8_type (get_name ()) builder in   
+      let ref = Llvm.build_gep i8_array [| i |] (get_name ()) builder in 
+      let _ = Llvm.build_store i8_value ref builder in 
+      let _ = Llvm.build_br nblock builder in 
+      let _ = Llvm.position_at_end block_array builder in 
+      let ref = Llvm.build_gep int_array [| i |] (get_name ()) builder in 
+      let _ = Llvm.build_store value ref builder in 
+      let _ = Llvm.build_br nblock builder in 
+      Llvm.position_at_end nblock builder
     | ELEM ->
       let num =  func#store in
       func#drop;
@@ -444,22 +474,25 @@ class global_c = object (self)
       ignore @@ func#load var
 
     | CALL (func_name, arity, is_tail_call) ->
-      let () = print_endline (">>> Call function/procedure " ^ func_name ^ " with arity " ^ string_of_int arity ^ " (tail call: " ^ string_of_bool is_tail_call ^ ")")  in
+      (* let () = print_endline (">>> Call function/procedure " ^ func_name ^ " with arity " ^ string_of_int arity ^ " (tail call: " ^ string_of_bool is_tail_call ^ ")")  in *)
       (match func_name with 
       ".array" ->
         let array = create_array arity func in 
         let array_to_int = Llvm.build_ptrtoint array int_type (get_name()^"_array_to_int_") builder in 
         ignore @@ func#load array_to_int 
       | "Lread" -> 
-        let llvm_func = self#get_llfunction "Lread" in 
+        let write_func = self#get_llfunction "Lwrite" in
+        let str = Llvm.build_global_stringptr "> " (get_name ()) builder in  
+        let _ = Llvm.build_call write_func [| str |] "" builder in
+        let read_func = self#get_llfunction "Lread" in 
         let var_ptr = func#get_free in
         let str = Llvm.build_global_stringptr "%d" (get_name()) builder in  
-        ignore @@ Llvm.build_call llvm_func [| str; var_ptr |] "" builder 
+        ignore @@ Llvm.build_call read_func [| str; var_ptr |] "" builder 
       | "Lwrite" -> 
         let llvm_func = self#get_llfunction "Lwrite" in 
         let value = func#store in
         func#drop;
-        let str = Llvm.build_global_stringptr "%d" (get_name()) builder in  
+        let str = Llvm.build_global_stringptr "%d\n" (get_name()) builder in  
         let value = Llvm.build_call llvm_func [| str; value |] "" builder in 
         ignore @@ func#load value 
       | _ -> 
