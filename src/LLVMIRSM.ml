@@ -340,13 +340,41 @@ class global_c = object (self)
       let _ = Llvm.build_br nblock builder in 
       Llvm.position_at_end nblock builder
     | ELEM ->
-      let num =  func#store in
+      let i = func#store in
+      func#drop;
+      let array = func#store in
+      func#drop;
+      let nblock = find_next_block func in  
+      let block_string = self#insert_block func (get_name() ^ "_elemblock_string") in 
+      let block_array = self#insert_block func (get_name() ^ "_elemblock_array") in
+      let int_array = Llvm.build_inttoptr array int_ptr_type (get_name ()) builder in 
+      let type_ref = Llvm.build_gep int_array [| mtwo |] (get_name ()) builder in 
+      let array_type = Llvm.build_load type_ref (get_name ()) builder in 
+      let comp = Llvm.build_icmp Llvm.Icmp.Eq string_code array_type (get_name ()) builder in 
+      let _ = Llvm.build_cond_br comp block_string block_array builder in 
+      let _ = Llvm.position_at_end block_string builder in 
+
+      let i8_array = Llvm.build_inttoptr array i8_ptr_type (get_name()) builder in
+      let ref = Llvm.build_gep i8_array [| i |] (get_name ()) builder in
+      let value = Llvm.build_load ref (get_name()) builder in
+      let value = Llvm.build_intcast value int_type (get_name ()) builder in 
+      ignore @@ func#load value; 
+      func#drop;  
+      let _ = Llvm.build_br nblock builder in 
+      let _ = Llvm.position_at_end block_array builder in 
+      
+      let ref = Llvm.build_gep int_array [| i |] (get_name ()) builder in
+      ignore @@ func#load_from_ptr ref;
+      let _ = Llvm.build_br nblock builder in 
+      Llvm.position_at_end nblock builder
+
+      (* let num =  func#store in
       func#drop;
       let array = func#store in
       func#drop;
       let array = Llvm.build_inttoptr array (int_ptr_type) (get_name () ^ "_elem") builder in
       let value_ptr = Llvm.build_gep array [| num |] (get_name ()) builder in
-      ignore @@ func#load_from_ptr value_ptr 
+      ignore @@ func#load_from_ptr value_ptr  *)
     | FLABEL s -> 
       let label = func#get_label s in
       func#set_reachable true;
@@ -355,7 +383,7 @@ class global_c = object (self)
     | LABEL s -> 
       let label = func#get_label s in
       if label#is_set && func#is_reachable && label#get_depth != func#get_depth then  
-        failwith "Depths does not match";
+        failwith @@ "Depths does not match " ^ s;
       if label#is_set then (
         func#set_reachable true;
         func#set_depth label#get_depth
@@ -485,13 +513,18 @@ class global_c = object (self)
         let str = Llvm.build_global_stringptr "> " (get_name ()) builder in  
         let _ = Llvm.build_call write_func [| str |] "" builder in
         let read_func = self#get_llfunction "Lread" in 
-        let var_ptr = func#get_free in
+        let var_ptr = Llvm.build_alloca int32_type (get_name()) builder in
         let str = Llvm.build_global_stringptr "%d" (get_name()) builder in  
-        ignore @@ Llvm.build_call read_func [| str; var_ptr |] "" builder 
+        ignore @@ Llvm.build_call read_func [| str; var_ptr |] "" builder;
+        let value = Llvm.build_load var_ptr (get_name()) builder in 
+        let value = Llvm.build_intcast value int_type (get_name()) builder in 
+        ignore @@ func#load value 
       | "Lwrite" -> 
         let llvm_func = self#get_llfunction "Lwrite" in 
         let value = func#store in
+        (* let value = Llvm.build_intcast value int32_type (get_name()) builder in  *)
         func#drop;
+        let value = Llvm.build_intcast value int32_type (get_name()) builder in  
         let str = Llvm.build_global_stringptr "%d\n" (get_name()) builder in  
         let value = Llvm.build_call llvm_func [| str; value |] "" builder in 
         ignore @@ func#load value 

@@ -1,6 +1,6 @@
   $ cat > test.sh <<-EOF
   > #!/bin/bash
-  > for i in {36..36}
+  > for i in {34..34}
   > do
   >   echo "test number: \$i"
   >   START="../../../../../regression"
