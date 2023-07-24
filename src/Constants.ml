@@ -29,10 +29,9 @@ type args_type =
 let builtInsMap =
   BuiltInsMapType.of_seq (List.to_seq [
     ("Lprintf", ("printf",  [| BITE_PTR |]));
-    ("Lwrite", ("printf",  [| BITE_PTR |])); 
+    ("Lwrite", ("Lwrite",  [| BITE_PTR |])); 
     ("Lstrcmp", ("strcmp",  [| BITE_PTR ; BITE_PTR |]));
-    ("Lread", ("__isoc99_scanf",  [| BITE_PTR |]));
-    ("Llength", ("strlen",  [| BITE_PTR |]));
+    ("Lread", ("Lread",  [| BITE_PTR |]));
   ])
 
 let get_function_signature s = 
@@ -46,11 +45,13 @@ let get_function_signature s =
     match name with 
     | "printf" -> Llvm.var_arg_function_type int_type [|i8_ptr_type|]   
     | "strcmp" -> Llvm.function_type int_type [| i8_ptr_type; i8_ptr_type |]
-    | "__isoc99_scanf" -> Llvm.var_arg_function_type int32_type [| i8_ptr_type |]
-    | "strlen" -> Llvm.function_type int_type [| i8_ptr_type |]
+    | "Lread" -> Llvm.var_arg_function_type int_type [|  |]
+    | "Lwrite" -> Llvm.function_type int_type [| int_type |]
     | _ -> failwith "No such function" in 
+
   (name, function_type) 
  
+
 let lamaFunctions = [".array"]
 
 let memcpy_type = Llvm.function_type (Llvm.void_type context) [| i8_ptr_type; i8_ptr_type; int_type; i1_type |]

@@ -57,13 +57,14 @@ let create_string s =
   (*   call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 16 %5, i8* align 1 %6, i64 %9, i1 false) *)
   let f = Llvm.declare_function memcpy_name memcpy_type main_module in 
   let array_size = Llvm.const_int int_type @@ String.length s + 1 in  
+  let string_size = Llvm.const_int int_type @@ String.length s in 
   let full_size = Llvm.const_int int_type @@ String.length s + 3   in 
   let array = Llvm.build_array_alloca  int_type full_size (get_name () ^ "_string_" ^ s) builder in 
   
   let zero_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
   let one_ptr = Llvm.build_gep array [| one |] (get_name ()) builder in
   ignore @@ Llvm.build_store string_code zero_ptr builder;
-  ignore @@ Llvm.build_store array_size one_ptr builder;
+  ignore @@ Llvm.build_store string_size one_ptr builder;
 
   let array_start = Llvm.build_gep array [| two |]  (get_name ()) builder in 
   let array_start = Llvm.build_bitcast array_start i8_ptr_type (get_name ()) builder in 
@@ -141,7 +142,8 @@ class global_c = object (self)
 
   method get_llfunction  (name : string)  =
     if self#has_extern_function name then (
-    let (name, funType) = get_function_signature name in 
+    let (_, funType) = get_function_signature name in 
+       (* print_endline @@ "function declaration: " ^ name;  *)
        Llvm.declare_function name funType  main_module)
     else 
     (if not @@ StringMap.mem name functions then 
@@ -169,9 +171,9 @@ class global_c = object (self)
       let new_block = Llvm.insert_block context s next_block in 
       new_block
 
-  method cast_args s (args : Llvm.llvalue list) = 
+  (* method cast_args s (args : Llvm.llvalue list) = 
     let casted_array = List.map (function y ->  Llvm.build_inttoptr y i8_ptr_type (get_name()) builder)  args in 
-    casted_array
+    casted_array *)
 
 
   method make_printf (s: string) (func : function_c) =
@@ -183,6 +185,7 @@ class global_c = object (self)
 
 
   method create_function (name : string) = 
+    print_endline @@ "function name: " ^ name;
     let (prg, nargs) = StringMap.find name functions_prg in  
     let llfunc = LL.define_function name @@ nargs + 1 in
     let func = new function_c name llfunc @@ nargs + 1 in
@@ -320,7 +323,7 @@ class global_c = object (self)
       let i = func#store in
       func#drop;
       let array = func#store in
-      let nblock = find_next_block func in  
+      let nblock = self#insert_block func (get_name()) in 
       let block_string = self#insert_block func (get_name() ^ "_stablock_string") in 
       let block_array = self#insert_block func (get_name() ^ "_stablock_array") in
       let int_array = Llvm.build_inttoptr array int_ptr_type (get_name ()) builder in 
@@ -344,7 +347,7 @@ class global_c = object (self)
       func#drop;
       let array = func#store in
       func#drop;
-      let nblock = find_next_block func in  
+      let nblock = self#insert_block func (get_name()) in  
       let block_string = self#insert_block func (get_name() ^ "_elemblock_string") in 
       let block_array = self#insert_block func (get_name() ^ "_elemblock_array") in
       let int_array = Llvm.build_inttoptr array int_ptr_type (get_name ()) builder in 
@@ -503,31 +506,19 @@ class global_c = object (self)
 
     | CALL (func_name, arity, is_tail_call) ->
       (* let () = print_endline (">>> Call function/procedure " ^ func_name ^ " with arity " ^ string_of_int arity ^ " (tail call: " ^ string_of_bool is_tail_call ^ ")")  in *)
-      (match func_name with 
-      ".array" ->
-        let array = create_array arity func in 
-        let array_to_int = Llvm.build_ptrtoint array int_type (get_name()^"_array_to_int_") builder in 
-        ignore @@ func#load array_to_int 
-      | "Lread" -> 
-        let write_func = self#get_llfunction "Lwrite" in
-        let str = Llvm.build_global_stringptr "> " (get_name ()) builder in  
-        let _ = Llvm.build_call write_func [| str |] "" builder in
-        let read_func = self#get_llfunction "Lread" in 
-        let var_ptr = Llvm.build_alloca int32_type (get_name()) builder in
-        let str = Llvm.build_global_stringptr "%d" (get_name()) builder in  
-        ignore @@ Llvm.build_call read_func [| str; var_ptr |] "" builder;
-        let value = Llvm.build_load var_ptr (get_name()) builder in 
-        let value = Llvm.build_intcast value int_type (get_name()) builder in 
-        ignore @@ func#load value 
-      | "Lwrite" -> 
-        let llvm_func = self#get_llfunction "Lwrite" in 
-        let value = func#store in
-        (* let value = Llvm.build_intcast value int32_type (get_name()) builder in  *)
+      (
+        match func_name with 
+        ".array" ->
+          let array = create_array arity func in 
+          let array_to_int = Llvm.build_ptrtoint array int_type (get_name()^"_array_to_int_") builder in 
+          ignore @@ func#load array_to_int 
+        | "Llength" -> 
+        let array = func#store in 
         func#drop;
-        let value = Llvm.build_intcast value int32_type (get_name()) builder in  
-        let str = Llvm.build_global_stringptr "%d\n" (get_name()) builder in  
-        let value = Llvm.build_call llvm_func [| str; value |] "" builder in 
-        ignore @@ func#load value 
+        let array = Llvm.build_inttoptr array int_ptr_type (get_name ()) builder in  
+        let sz_ptr = Llvm.build_gep array [| mone |] (get_name()) builder in 
+        let sz = Llvm.build_load sz_ptr (get_name ()) builder in 
+        ignore @@ func#load sz
       | _ -> 
       let args = ref [] in 
       let () =
@@ -537,9 +528,8 @@ class global_c = object (self)
           func#drop
         done in 
       let llvm_func =  self#get_llfunction func_name in
-      let _ = if self#has_extern_function func_name then
-      args := self#cast_args func_name !args  
-      else args := zero :: !args in 
+      let _ = if not @@ self#has_extern_function func_name then
+      args := zero :: !args in 
       (* add zero instead of closure variables *)
       let args = Array.of_list !args in 
       let name =  get_name () in

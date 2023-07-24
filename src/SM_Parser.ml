@@ -76,7 +76,7 @@ let run_sm_parser file =
   (try
     while true do
       let line = input_line channel in
-      print_endline line;
+      (* print_endline line; *)
       let words =   List.filter (fun str -> str <> "") @@
       Str.split (Str.regexp "[\" (),]") line in 
       insns := (parse_insn words line) :: !insns 
