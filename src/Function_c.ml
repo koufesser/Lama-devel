@@ -143,12 +143,8 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
   method get_name = name
   method get_function = func
   method set_depth n =
-    while (stack_fullness < n) do 
-      ignore @@ self#get_free
-    done;
-    while (stack_fullness > n) do 
-      ignore @@ self#drop
-    done
+    stack_fullness <- n;
+
 
   method get_free = 
     stack_fullness <- stack_fullness + 1;

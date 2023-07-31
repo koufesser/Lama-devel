@@ -21,6 +21,7 @@ let builtIns = ["Lprintf"; "Lstrcmp"]
 let array_code = Llvm.const_int int_type 1
 let sexp_code = Llvm.const_int int_type 2
 let string_code = Llvm.const_int int_type 3
+let closure_code = Llvm.const_int int_type 4
 
 module BuiltInsMapType = Map.Make(String)
 type args_type = 

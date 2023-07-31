@@ -15,6 +15,7 @@ let parse_designation (line : string list) : Value.designation =
 
 let parse_designation_list line = 
   let vars = Str.split (Str.regexp ";") line in 
+  let vars = List.filter (fun str -> str <> ")") vars in   
   List.map (function x -> parse_designation @@ List.filter (fun str -> str <> "") @@ Str.split (Str.regexp "[ ()]") x) vars  
 
 let print_list l = 
@@ -26,6 +27,17 @@ let print_list l =
   print_endline "line was parsed in:";
   print_list_ l;
   print_endline ""
+
+let parse_patt l = 
+  match l with
+  "StrCmp" -> StrCmp
+  |"String" -> String
+  | "Array" -> Array
+  | "Sexp" -> Sexp
+  | "Boxed" -> Boxed
+  | "UnBoxed" -> UnBoxed 
+  | "Closure" -> Closure
+  | _ -> failwith "no such pattern"
 
 (* let parse_designation_list desigs () *)
 let parse_insn (line : string list) (wline : string) =
@@ -61,7 +73,7 @@ let parse_insn (line : string list) (wline : string) =
   | "SWAP"   -> SWAP
   | "TAG"    -> TAG (List.nth line 1, int_of_string (List.nth line 2))
   | "ARRAY"  -> ARRAY (int_of_string (List.nth line 1))
-  (* | "PATT"   -> PATT (parse_patt @@ List.nth line 1) *)
+  | "PATT"   -> PATT (parse_patt @@ List.nth line 1)
   (* | "FAIL"   -> FAIL (parse_loc @@ List.nth line 1, bool_of_string (List.nth line 2)) *)
   | "EXTERN" -> EXTERN (List.nth line 1)
   | "PUBLIC" -> PUBLIC (List.nth line 1)
@@ -76,7 +88,7 @@ let run_sm_parser file =
   (try
     while true do
       let line = input_line channel in
-      (* print_endline line; *)
+      print_endline line;
       let words =   List.filter (fun str -> str <> "") @@
       Str.split (Str.regexp "[\" (),]") line in 
       insns := (parse_insn words line) :: !insns 

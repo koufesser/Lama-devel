@@ -18,7 +18,8 @@ module type S = sig
   val build_Slt : string -> ?name:string  -> llvalue -> llvalue -> llvalue
   val build_Sle : string -> ?name:string -> llvalue -> llvalue -> llvalue
   val build_and : ?name:string -> llvalue -> llvalue -> llvalue
-
+  val build_or : ?name:string -> llvalue -> llvalue -> llvalue
+  
   (* ?? *)
 
   val build_ptrtoint : ?name:string -> llvalue -> lltype -> llvalue
@@ -59,6 +60,7 @@ let make builder context module_ =
     let build_Sge name1 ?(name = "") l r = (build_zext (build_icmp Icmp.Sge l r name1 builder) int_type name builder)
     let build_Sle name1 ?(name = "") l r = (build_zext (build_icmp Icmp.Sle l r name1 builder) int_type name builder)
     let build_and ?(name = "") l r = build_and l r name builder 
+    let build_or ?(name = "") l r = build_or l r name builder 
     let build_ptrtoint ?(name = "") e typ =
       Llvm.build_ptrtoint e typ name builder
 

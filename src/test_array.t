@@ -1,7 +1,7 @@
   $ cat > test_array.lama <<-EOF
   > var samples = [ "string 1", 2, "string2"];
-  > printf ("%s\n", samples[0]);
-  > printf ("%d\n", samples[1]);
+  > samples[0] := 123;
+  > printf ("%d\n", samples[0]);
   > printf ("%s\n", samples[2])
   > EOF
   $ cat test_array.lama
