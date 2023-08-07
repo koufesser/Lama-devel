@@ -126,9 +126,15 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
   method set_nargs n =
     nargs <- n 
 
+  method mark_int (value : Llvm.llvalue) = 
+    LL.build_add ~name:(get_name()) one (LL.build_mul ~name:(get_name()) two value) 
+
+  method unmark_int (value : Llvm.llvalue) = 
+    LL.build_sdiv ~name:(get_name()) (LL.build_sub ~name:(get_name()) value one) two 
+
   method get_closure_variables = 
     Llvm.param func 0 
-  
+
   method get_param i = 
     Llvm.param func @@ i + 1 
 
@@ -165,6 +171,11 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
     let ptr = self#get_free in 
     Llvm.build_store value ptr builder
 
+  method load_int (value : Llvm.llvalue)  = 
+    let ptr = self#get_free in
+    let ld_int = self#mark_int value in 
+    Llvm.build_store ld_int ptr builder
+  
   method load_from_ptr (value : Llvm.llvalue) =
     let value = Llvm.build_load value (get_name ()) builder in 
     Llvm.build_store value (self#get_free) builder
@@ -173,6 +184,12 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
     let ptr = self#get_front in 
     let stored = Llvm.build_load ptr (get_name ()) builder in 
     stored
+
+  method store_int =
+  let ptr = self#get_front in 
+  let stored = Llvm.build_load ptr (get_name ()) builder in 
+  let st_int = self#unmark_int stored in
+  st_int
 
   method store_and_drop_n  n = 
     stack_fullness <- stack_fullness - n;

@@ -20,11 +20,6 @@ let failwiths fmt = Format.kasprintf failwith fmt
 let log fmt = Format.kasprintf (fun s -> Format.printf "%s\n%!" s) fmt
 
 
-let assert_int num_type = 
-  match num_type with 
-    | Int -> ()
-    | _ -> failwith "not an int"
-
 
 (* let show_desig (desig : Language.Value.designation) =
   match desig with
@@ -72,9 +67,15 @@ let create_string s =
   let _ = Llvm.build_alloca int_type (get_name () ^ "_end_of_string_allocation") builder in
   array_start
 
-let create_array n (func : function_c) = 
-  let full_size = Llvm.const_int int_type (n + 2) in
-  let array_size = Llvm.const_int int_type n in
+
+  let create_array_1 () = 
+  let ftype = Llvm.function_type int_type [| int_type; int_type |] in 
+  let func = Llvm.define_function ".array" ftype main_module in 
+  let entry = Llvm.entry_block func in
+  let array_size = Llvm.param func 1 in
+  let values = Llvm.param func 0 in
+  Llvm.position_at_end entry builder;
+  let full_size = LL.build_add ~name:(get_name()) two array_size in
   let array = Llvm.build_array_malloc int_type full_size (get_name() ^ "_array") builder in
   (* setting type and size *)
   let zero_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
@@ -82,13 +83,14 @@ let create_array n (func : function_c) =
   ignore @@ Llvm.build_store  array_code zero_ptr builder;
   ignore @@ Llvm.build_store array_size one_ptr builder;
   let array_start  = Llvm.build_gep array [| two |] (get_name ()) builder in 
-  let values = func#store_and_drop_n n in 
   let ar_st_i8 = Llvm.build_bitcast  array_start i8_ptr_type (get_name ()) builder in 
-  let values_i8 = Llvm.build_bitcast  values i8_ptr_type (get_name ()) builder in 
-  let size = Llvm.const_int int_type (n * 8) in 
+  let values_i8 = Llvm.build_inttoptr  values i8_ptr_type (get_name ()) builder in 
+
+  let size = LL.build_mul ~name:(get_name()) eight array_size  in 
   let f = Llvm.declare_function memcpy_name memcpy_type main_module in 
   let _ = Llvm.build_call f [| ar_st_i8; values_i8; size; lfalse |] "" builder in 
-  array_start 
+  let ret = Llvm.build_ptrtoint array_start int_type (get_name ()) builder in 
+  Llvm.build_ret ret builder  
 
 let create_sexp size (tag : string) (func : function_c) =   
   let full_size = Llvm.const_int int_type (size + 3) in
@@ -105,13 +107,22 @@ let create_sexp size (tag : string) (func : function_c) =
   ignore @@ Llvm.build_store sexp_code one_ptr builder;
   ignore @@ Llvm.build_store array_size two_ptr builder;
   
+  let array_start  = Llvm.build_gep array [| three |] (get_name ()) builder in 
+  let ar_st_i8 = Llvm.build_bitcast  array_start i8_ptr_type (get_name ()) builder in 
+  let values = func#store_and_drop_n size in 
+  let values_i8 = Llvm.build_bitcast  values i8_ptr_type (get_name ()) builder in 
+  let size = LL.build_mul ~name:(get_name()) eight array_size  in 
+  let f = Llvm.declare_function memcpy_name memcpy_type main_module in 
+  let _ = Llvm.build_call f [| ar_st_i8; values_i8; size; lfalse |] "" builder in 
+
+(* 
   for variable = 0 to size - 1 do
     let num = Llvm.const_int int_type (size + 2 - variable ) in
     let value_ptr = Llvm.build_gep array [| num |] (get_name ()) builder in
     let value = func#store in
     func#drop;
     ignore @@ Llvm.build_store value value_ptr builder
-  done;
+  done; *)
   Llvm.build_gep array [| three |] (get_name ()) builder
 
 let find_next_block func  = 
@@ -152,12 +163,6 @@ class global_c = object (self)
       ignore @@ Llvm.position_at_end curblock builder;);
       (StringMap.find name functions)#get_function
     )
-
-  method cast_to_llvalue (value : Llvm.llvalue) (t: args_type) = 
-    match t with 
-    | INT -> value
-    | INT_PTR -> Llvm.build_inttoptr value int_ptr_type (get_name()) builder
-    | BITE_PTR ->  Llvm.build_inttoptr value int_ptr_type (get_name()) builder
 
   method insert_block (func : function_c) s =
     let insertion_block = Llvm.insertion_block builder in
@@ -211,7 +216,7 @@ class global_c = object (self)
   method has_global (s : string) = 
     StringMap.mem s globals
 
-  method store_global (value : Llvm.llvalue) (s : string)  = 
+  method load_global (value : Llvm.llvalue) (s : string)  = 
     let global = if self#has_global s then StringMap.find s globals else 
       let gl = Llvm.define_global s  (Llvm.const_int int_type 0)  main_module in 
       let _ = globals <- StringMap.add s gl globals in 
@@ -222,15 +227,7 @@ class global_c = object (self)
     if func#get_opcode then func#set_opcode false
     else ignore @@ Llvm.build_br block builder 
 
-  method load_global (s : string) = 
-    if not @@ self#has_global s then failwith "Trying to store non existent global";
-    let global =  StringMap.find s globals in
-    let value =  Llvm.build_load  global (get_name ()) builder in 
-    value
-
-  method mark_int n = n * 2 + 1
-  method unmark_int n = (n - 1) / 2
-
+  
   method define_labels (insns:SM.prg) (func : function_c) = 
   let fullness = ref 0 in 
   let max_size = ref 0 in   
@@ -262,9 +259,9 @@ class global_c = object (self)
     (* Llvm.dump_module main_module; *)
     match insn with
     | BINOP op ->
-      let a_value  = func#store in
+      let a_value  = func#store_int in
       func#drop;
-      let b_value  = func#store in
+      let b_value  = func#store_int in
       func#drop;
       let name = get_name () in 
       let operand, op_name =
@@ -289,10 +286,10 @@ class global_c = object (self)
       let name = get_name () in
       let temp = operand b_value a_value  ~name:(name) in
       let ctmp = Llvm.build_intcast temp int_type (get_name ()) builder in  
-      ignore @@ func#load ctmp 
+      ignore @@ func#load_int ctmp 
     | CONST i ->
       let int_val = Llvm.const_int (int_type) i in
-      ignore @@ func#load int_val;
+      ignore @@ func#load_int int_val;
       | STRING s ->
       let string_ptr = create_string s in
       let cstring_ptr = Llvm.build_ptrtoint string_ptr int_type (get_name ()) builder in
@@ -332,19 +329,25 @@ class global_c = object (self)
     | ST desig ->
         (match desig with
         | Global s  -> let value = func#store in
-                      self#store_global value s  
+                      self#load_global value s  
         | Local i   -> 
           let value = func#store in
            ignore @@ func#load_local i value
         | Arg i     ->  failwith "trying to store in argument"
-        | Access i  -> failwiths "trying to store in access"
+        | Access i  ->     
+          let st_val = func#store in 
+          let cl_var = func#get_closure_variables in 
+          let li = Llvm.const_int int_type i in 
+          let cl_var = Llvm.build_inttoptr cl_var int_ptr_type (get_name ()) builder in 
+          let iptr = Llvm.build_gep cl_var [| li |] (get_name ()) builder in 
+          ignore @@ Llvm.build_store st_val iptr builder
         | Fun s     -> failwiths "trying to store in fun"
         )
     | STI -> failwith "STI"
     | STA -> 
       let value =  func#store in
       func#drop;
-      let i = func#store in
+      let i = func#store_int in
       func#drop;
       let array = func#store in
       let nblock = self#insert_block func (get_name()) in 
@@ -367,7 +370,7 @@ class global_c = object (self)
       let _ = Llvm.build_br nblock builder in 
       Llvm.position_at_end nblock builder
     | ELEM ->
-      let i = func#store in
+      let i = func#store_int in
       func#drop;
       let array = func#store in
       func#drop;
@@ -434,7 +437,7 @@ class global_c = object (self)
     | CJMP (cond, s) ->
       let after_bb = self#insert_block func (get_name () ^ "_cjmp") in
       let zero = Llvm.const_int int_type 0 in
-      let value = func#store in 
+      let value = func#store_int in 
       let cond_ = Llvm.build_icmp Llvm.Icmp.Ne value zero (get_name ()) builder  in
       let dest_block =  func#get_label s in
       func#drop;
@@ -521,6 +524,7 @@ class global_c = object (self)
       let curblock = Llvm.insertion_block builder in 
       let name =  get_name () in
       let closure = func#store in 
+      func#drop;
       let array = Llvm.build_inttoptr closure (int_ptr_type) (get_name ()) builder in
       let closure_variables_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
       let closure_variables = Llvm.build_load closure_variables_ptr (get_name ()) builder in 
@@ -536,18 +540,21 @@ class global_c = object (self)
     | CALL (func_name, arity, is_tail_call) ->
       (* let () = print_endline (">>> Call function/procedure " ^ func_name ^ " with arity " ^ string_of_int arity ^ " (tail call: " ^ string_of_bool is_tail_call ^ ")")  in *)
       (
-        match func_name with 
-        ".array" ->
-          let array = create_array arity func in 
-          let array_to_int = Llvm.build_ptrtoint array int_type (get_name()^"_array_to_int_") builder in 
-          ignore @@ func#load array_to_int 
+        match func_name with
+        | ".array" -> 
+          let f = self#get_llfunction ".array" in 
+          let value = func#store_and_drop_n arity in 
+          let value = Llvm.build_ptrtoint value int_type (get_name ()) builder in 
+          let array_size = Llvm.const_int int_type arity in 
+          let res = Llvm.build_call f [| value; array_size |] (get_name ()) builder in 
+          ignore @@ func#load res     
         | "Llength" -> 
         let array = func#store in 
         func#drop;
         let array = Llvm.build_inttoptr array int_ptr_type (get_name ()) builder in  
         let sz_ptr = Llvm.build_gep array [| mone |] (get_name()) builder in 
         let sz = Llvm.build_load sz_ptr (get_name ()) builder in 
-        ignore @@ func#load sz
+        ignore @@ func#load_int sz
       | _ -> 
       let args = ref [] in 
       let () =
@@ -724,7 +731,11 @@ class global_c = object (self)
         func#drop;
         let res = Llvm.build_and ptnl_int one (get_name ()) builder in 
         ignore @@ func#load res
-      | _ -> failwith @@ "such pattern is not supported" 
+      | Boxed  ->         
+        let ptnl_int = func#store in 
+        func#drop;
+        let res = Llvm.build_not (Llvm.build_and ptnl_int one (get_name ()) builder) (get_name ()) builder in 
+        ignore @@ func#load res 
       )
     | FAIL (loc, leave_value) ->
       let printf = self#get_llfunction "Lprintf" in 
@@ -756,19 +767,16 @@ class global_c = object (self)
       ) insns
 end
 
-
 let build (insns:SM.prg) =
   let global = new global_c in 
   global#cut_functions insns;
-  global#create_function "main";
-  (* print_endline "main created"; *)
+  (* let _ = create_array_1 ()  in *)
+  let _ = global#create_function "main" in 
   let filename = "output.ll" in 
   Llvm.print_module filename main_module;
-  (* print_endline ("LLVM module written to: " ^ filename); *)
   
   dump_to_object ~the_fpm
   (* print_endline "dumped to object"; *)
   (* Llvm.dump_module main_module *)
 
 let%test _ = true
-

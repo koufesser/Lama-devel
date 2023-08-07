@@ -1,24 +1,37 @@
   $ cat > test_array.lama <<-EOF
   > var n;
-  > fun collect_ints_acc (v, tail) {
-  > var i;
-  > case v of
-  >   a@#val ->  Cons (a, tail)
-  > | #str   ->  tail
-  > | _       ->
-  >    for i := 0, i < v.length, i := i + 1 do
-  >      tail := collect_ints_acc (v[i], tail)
-  >    od;
-  >     tail
+  > n := read ();
+  > case 3 of
+  > a -> write (a)
+  > | _ -> write (0)
+  > esac;
+  > case 3 of
+  > a -> write (a)
+  > esac;
+  > case 3 of
+  > a@_ -> write (a)
+  > esac;
+  > case A (1, 2, 3) of
+  > A             -> write (1)
+  > | a@A (_, _, _) -> case a of
+  >                   A (x, y, z) -> write (x); write (y); write (z)
   > esac
-  > }
-  > fun collect_ints (v) {
-  >  collect_ints_acc (v, Nil)
-  > }
-  > collect_ints ([1, 2, 3])
+  > esac;
+  > case A (1, 2, 3, 4, 5) of
+  > A                 -> write (0)
+  > | A (_)             -> write (1)
+  > | A (_, _)          -> write (2)
+  > | A (_, _, _)       -> write (3)
+  > | A (_, _, _, _)    -> write (4)
+  > | A (_, _, _, _, _) -> write (5)
+  > esac;
+  > write (A (1, 2, 3, 4, 5).length);
+  > write (A (1, 2, 3, 4, 5)[0]);
+  > write (A (1, 2, 3, 4, 5)[1]);
+  > write (A (1, 2, 3, 4, 5)[2]);
+  > write (A (1, 2, 3, 4, 5)[3]);
+  > write (A (1, 2, 3, 4, 5)[4])
   > EOF
-  $ cat test_array.lama
-  var samples = [ {"a", "b", "c"}, "string", [], Fruit ("apple"), fun () {skip} ];
   $ lamac -ds test_array.lama
   $ cp "test_array.sm" "../../../../../src/test_array.sm"
   $ ./Driver.exe -sml test_array.sm -o curry1.o

@@ -9,6 +9,7 @@ let i1_type = Llvm.i1_type context
 let zero = Llvm.const_int int_type 0 
 let one = Llvm.const_int int_type 1 
 let two = Llvm.const_int int_type 2 
+let eight = Llvm.const_int int_type 8 
 let three = Llvm.const_int int_type 3 
 let mone = Llvm.const_int int_type @@ -1 
 let mtwo = Llvm.const_int int_type @@ -2 
@@ -16,7 +17,7 @@ let mthree = Llvm.const_int int_type @@ -3
 let lfalse = Llvm.const_int i1_type 0
 let ltrue = Llvm.const_int i1_type 1
 let last_bit = 31
-let builtIns = ["Lprintf"; "Lstrcmp"]
+let builtIns = ["Lprintf"; "Lstrcmp"; ".array"]
 
 let array_code = Llvm.const_int int_type 1
 let sexp_code = Llvm.const_int int_type 2
@@ -33,6 +34,7 @@ let builtInsMap =
     ("Lwrite", ("Lwrite",  [| BITE_PTR |])); 
     ("Lstrcmp", ("strcmp",  [| BITE_PTR ; BITE_PTR |]));
     ("Lread", ("Lread",  [| BITE_PTR |]));
+    (".array", (".array",  [| BITE_PTR |]));
   ])
 
 let get_function_signature s = 
@@ -48,6 +50,7 @@ let get_function_signature s =
     | "strcmp" -> Llvm.function_type int_type [| i8_ptr_type; i8_ptr_type |]
     | "Lread" -> Llvm.var_arg_function_type int_type [|  |]
     | "Lwrite" -> Llvm.function_type int_type [| int_type |]
+    | ".array" -> Llvm.function_type int_type [| int_type; int_type |]
     | _ -> failwith "No such function" in 
 
   (name, function_type) 
