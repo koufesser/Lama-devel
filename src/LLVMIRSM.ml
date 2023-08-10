@@ -259,9 +259,9 @@ class global_c = object (self)
     (* Llvm.dump_module main_module; *)
     match insn with
     | BINOP op ->
-      let a_value  = func#store_int in
+      let a_value  = ref func#store_int in
       func#drop;
-      let b_value  = func#store_int in
+      let b_value  = ref func#store_int in
       func#drop;
       let name = get_name () in 
       let operand, op_name =
@@ -277,14 +277,18 @@ class global_c = object (self)
         | "<=" -> (LL.build_Sle name, "sle")
         | "==" -> (LL.build_eq name, "sle")
         | "!=" -> (LL.build_ne name, "sle")
-        | "&&" -> (LL.build_and, "and")
-        | "!!" -> (LL.build_or, "or")
-        | _ ->
-            Format.kasprintf failwith
-              "Only +,/,*,- are supported by now but %s appeared" op
-      in
+        | "!!" | "&&" ->
+          a_value := LL.build_ne (get_name()) !a_value one ~name:(get_name());
+          b_value := LL.build_ne (get_name()) !b_value one ~name:(get_name());
+          (match op with
+          | "&&" -> (LL.build_and, "and")
+          | "!!" -> (LL.build_or, "or")
+          | _ -> failwith "this error should never appear" )
+        | _ ->  Format.kasprintf failwith 
+             "Only +,/,*,- are supported by now but %s appeared" op
+        in
       let name = get_name () in
-      let temp = operand b_value a_value  ~name:(name) in
+      let temp = operand !b_value !a_value  ~name:(name) in
       let ctmp = Llvm.build_intcast temp int_type (get_name ()) builder in  
       ignore @@ func#load_int ctmp 
     | CONST i ->
@@ -359,8 +363,10 @@ class global_c = object (self)
       let comp = Llvm.build_icmp Llvm.Icmp.Eq string_code array_type (get_name ()) builder in 
       let _ = Llvm.build_cond_br comp block_string block_array builder in 
       let _ = Llvm.position_at_end block_string builder in 
+      let i8value_ = Llvm.build_sub value one (get_name()) builder in 
+      let i8value = Llvm.build_sdiv i8value_ two (get_name()) builder in
       let i8_array = Llvm.build_inttoptr array i8_ptr_type (get_name()) builder in
-      let i8_value = Llvm.build_intcast value i8_type (get_name ()) builder in   
+      let i8_value = Llvm.build_intcast i8value i8_type (get_name ()) builder in   
       let ref = Llvm.build_gep i8_array [| i |] (get_name ()) builder in 
       let _ = Llvm.build_store i8_value ref builder in 
       let _ = Llvm.build_br nblock builder in 
@@ -388,7 +394,7 @@ class global_c = object (self)
       let ref = Llvm.build_gep i8_array [| i |] (get_name ()) builder in
       let value = Llvm.build_load ref (get_name()) builder in
       let value = Llvm.build_intcast value int_type (get_name ()) builder in 
-      ignore @@ func#load value; 
+      ignore @@ func#load_int value; 
       func#drop;  
       let _ = Llvm.build_br nblock builder in 
       let _ = Llvm.position_at_end block_array builder in 
