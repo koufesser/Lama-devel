@@ -35,6 +35,8 @@ let builtInsMap =
     ("Lstrcmp", ("strcmp",  [| BITE_PTR ; BITE_PTR |]));
     ("Lread", ("Lread",  [| BITE_PTR |]));
     (".array", (".array",  [| BITE_PTR |]));
+    ("Lhd", ("Lhd",  [| INT_PTR |]));
+    ("Ltl", ("Ltl",  [| INT_PTR |]));
   ])
 
 let get_function_signature s = 
@@ -51,6 +53,8 @@ let get_function_signature s =
     | "Lread" -> Llvm.var_arg_function_type int_type [|  |]
     | "Lwrite" -> Llvm.function_type int_type [| int_type |]
     | ".array" -> Llvm.function_type int_type [| int_type; int_type |]
+    | "Lhd" -> Llvm.function_type int_type [| int_type |]
+    | "Ltl" -> Llvm.function_type int_type [| int_type |]
     | _ -> failwith "No such function" in 
 
   (name, function_type) 

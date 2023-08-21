@@ -118,13 +118,9 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
   val mutable rstack : Llvm.llvalue = zero
   val mutable stack_fullness = 0
   val mutable locals = IntMap.empty
-  val mutable locals_type = IntMap.empty 
-  val mutable nargs = 0
   val mutable labels_map = StringMap.empty
   val mutable reachable = true
-
-  method set_nargs n =
-    nargs <- n 
+  val mutable params : Llvm.llvalue = zero
 
   method mark_int (value : Llvm.llvalue) = 
     LL.build_add ~name:(get_name()) one (LL.build_mul ~name:(get_name()) two value) 
@@ -136,7 +132,12 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
     Llvm.param func 0 
 
   method get_param i = 
-    Llvm.param func @@ i + 1 
+    let ptr = Llvm.build_gep params [| Llvm.const_int int_type @@ i + 1 |] (get_name() ^ "_param_loading") builder in 
+    Llvm.build_load ptr (get_name() ^ "_loaded_param") builder  
+
+  method set_param i value = 
+    let ptr = Llvm.build_gep params [| Llvm.const_int int_type @@ i + 1 |] (get_name()^ "param_setting") builder in 
+    Llvm.build_store value ptr builder 
 
   method set_reachable s = 
     reachable <- s
@@ -165,7 +166,13 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
 
   method create_stack size = 
     let builder = Llvm.builder_at context (Llvm.instr_begin (Llvm.entry_block func)) in
-    rstack <- Llvm.build_array_alloca int_type (Llvm.const_int int_type size) (get_name()) builder 
+    rstack <- Llvm.build_array_alloca int_type (Llvm.const_int int_type size) (get_name()) builder;
+    params <- Llvm.build_array_alloca int_type (Llvm.const_int int_type args) (get_name()) builder;
+    for i = 0 to args - 1 do
+      let ptr = Llvm.build_gep params [| Llvm.const_int int_type i |] (get_name()) builder in
+      let value = Llvm.param func i in    
+      ignore @@ Llvm.build_store value ptr builder 
+    done 
 
   method load (value : Llvm.llvalue)  = 
     let ptr = self#get_free in 

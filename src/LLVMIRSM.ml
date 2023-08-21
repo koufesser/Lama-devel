@@ -68,30 +68,6 @@ let create_string s =
   array_start
 
 
-  let create_array_1 () = 
-  let ftype = Llvm.function_type int_type [| int_type; int_type |] in 
-  let func = Llvm.define_function ".array" ftype main_module in 
-  let entry = Llvm.entry_block func in
-  let array_size = Llvm.param func 1 in
-  let values = Llvm.param func 0 in
-  Llvm.position_at_end entry builder;
-  let full_size = LL.build_add ~name:(get_name()) two array_size in
-  let array = Llvm.build_array_malloc int_type full_size (get_name() ^ "_array") builder in
-  (* setting type and size *)
-  let zero_ptr = Llvm.build_gep array [| zero |] (get_name ()) builder in
-  let one_ptr = Llvm.build_gep array [| one |] (get_name ()) builder in
-  ignore @@ Llvm.build_store  array_code zero_ptr builder;
-  ignore @@ Llvm.build_store array_size one_ptr builder;
-  let array_start  = Llvm.build_gep array [| two |] (get_name ()) builder in 
-  let ar_st_i8 = Llvm.build_bitcast  array_start i8_ptr_type (get_name ()) builder in 
-  let values_i8 = Llvm.build_inttoptr  values i8_ptr_type (get_name ()) builder in 
-
-  let size = LL.build_mul ~name:(get_name()) eight array_size  in 
-  let f = Llvm.declare_function memcpy_name memcpy_type main_module in 
-  let _ = Llvm.build_call f [| ar_st_i8; values_i8; size; lfalse |] "" builder in 
-  let ret = Llvm.build_ptrtoint array_start int_type (get_name ()) builder in 
-  Llvm.build_ret ret builder  
-
 let create_sexp size (tag : string) (func : function_c) =   
   let full_size = Llvm.const_int int_type (size + 3) in
   let array_size = Llvm.const_int int_type size in
@@ -115,14 +91,6 @@ let create_sexp size (tag : string) (func : function_c) =
   let f = Llvm.declare_function memcpy_name memcpy_type main_module in 
   let _ = Llvm.build_call f [| ar_st_i8; values_i8; size; lfalse |] "" builder in 
 
-(* 
-  for variable = 0 to size - 1 do
-    let num = Llvm.const_int int_type (size + 2 - variable ) in
-    let value_ptr = Llvm.build_gep array [| num |] (get_name ()) builder in
-    let value = func#store in
-    func#drop;
-    ignore @@ Llvm.build_store value value_ptr builder
-  done; *)
   Llvm.build_gep array [| three |] (get_name ()) builder
 
 let find_next_block func  = 
@@ -211,7 +179,7 @@ class global_c = object (self)
     extern_functions <- StringSet.add func extern_functions
 
   method has_extern_function (name : string) = 
-    StringSet.mem name extern_functions || List.mem name builtIns
+    BuiltInsMapType.mem name builtInsMap
 
   method has_global (s : string) = 
     StringMap.mem s globals
@@ -278,8 +246,8 @@ class global_c = object (self)
         | "==" -> (LL.build_eq name, "sle")
         | "!=" -> (LL.build_ne name, "sle")
         | "!!" | "&&" ->
-          a_value := LL.build_ne (get_name()) !a_value one ~name:(get_name());
-          b_value := LL.build_ne (get_name()) !b_value one ~name:(get_name());
+          a_value := LL.build_ne (get_name()) !a_value zero ~name:(get_name());
+          b_value := LL.build_ne (get_name()) !b_value zero ~name:(get_name());
           (match op with
           | "&&" -> (LL.build_and, "and")
           | "!!" -> (LL.build_or, "or")
@@ -337,7 +305,9 @@ class global_c = object (self)
         | Local i   -> 
           let value = func#store in
            ignore @@ func#load_local i value
-        | Arg i     ->  failwith "trying to store in argument"
+        | Arg i     -> 
+        let value = func#store in
+        ignore @@ func#set_param i value
         | Access i  ->     
           let st_val = func#store in 
           let cl_var = func#get_closure_variables in 
@@ -417,7 +387,6 @@ class global_c = object (self)
       ignore @@ self#check_opcode func label#get_block; 
       Llvm.position_at_end label#get_block builder;
     | LABEL s -> 
-      (* print_endline @@ "label: " ^ s; *)
       (* Llvm.dump_module main_module; *)
       (* print_endline " "; *)
       let label = func#get_label s in
@@ -589,8 +558,23 @@ class global_c = object (self)
     | SWAP ->
       func#swap
     | TAG (tag_name, arity) -> 
+      let sexp = func#store in 
+      let _ = func#drop in 
+
+      let end_block = self#insert_block func (get_name() ^ "_tagblock_3") in 
+      let block_2 = self#insert_block func (get_name() ^ "_tagblock_2") in 
+      let block_1 = self#insert_block func (get_name() ^ "_tagblock_1") in 
+      let cond = Llvm.build_and sexp one (get_name ()) builder in 
+      let cond = Llvm.build_icmp Eq cond one (get_name()) builder in 
+      let _ = Llvm.build_cond_br  cond block_1 block_2 builder in 
+      let _ = Llvm.position_at_end block_1 builder in
+      let _ = func#load_int zero in 
+      let _ = Llvm.build_br end_block builder in
+      (* if correct compare tag *)
+      func#drop;
+      let _ = Llvm.position_at_end block_2 builder in
+
       (* self#make_printf ("tag " ^ tag_name) func ; *)
-      let _ = Llvm.build_alloca int_type (get_name () ^ "_tag_start_" ^ tag_name) builder in 
       let f = Llvm.declare_function memcmp_name memcmp_type main_module in 
       let comparison_array = Llvm.build_array_alloca int_type two (get_name() ^ "_tag_comp") builder in 
       let zero_ptr = Llvm.build_gep comparison_array [| zero |] (get_name ()) builder in 
@@ -598,8 +582,7 @@ class global_c = object (self)
       let lsize = Llvm.const_int int_type arity in   
       ignore @@ Llvm.build_store sexp_code zero_ptr builder;
       ignore @@ Llvm.build_store lsize one_ptr builder;
-      let sexp = func#store in 
-      let _ = func#drop in 
+
       (* let _ = self#make_printf "been here block 0\n" func in *)
       let ptr_to_sexp = Llvm.build_inttoptr sexp int_ptr_type (get_name () ^ "_sexp") builder in 
       let ptr_to_sexp = Llvm.build_gep ptr_to_sexp [| mtwo |] (get_name ()) builder in
@@ -610,16 +593,8 @@ class global_c = object (self)
       let i8_ptr_comparison_array = Llvm.build_bitcast comparison_array i8_ptr_type (get_name()) builder in 
       let comp = Llvm.build_call f [| i8ptr_to_sexp; i8_ptr_comparison_array; (Llvm.const_int int_type @@ int_size * 2) |] (get_name()) builder in 
       let cond = Llvm.build_icmp Ne comp zero (get_name()) builder in
-      let block_3 = self#insert_block func (get_name() ^ "_tagblock_3") in 
       let block_2 = self#insert_block func (get_name() ^ "_tagblock_2_1") in 
-      let block_1 = self#insert_block func (get_name() ^ "_tagblock_1") in 
       let _ = Llvm.build_cond_br  cond block_1 block_2 builder in 
-      let _ = Llvm.position_at_end block_1 builder in
-      (* let _ = self#make_printf "been here block 1" func in  *)
-      let _ = func#load zero in 
-      let _ = Llvm.build_br block_3 builder in
-      (* if correct compare tag *)
-      func#drop;
       let _ = Llvm.position_at_end block_2 builder in
       let ptr_ptr_string = Llvm.build_gep ptr_to_sexp [| mone |] (get_name ()) builder in
       let ptr_string = Llvm.build_load ptr_ptr_string (get_name ()^"_str_st") builder in  
@@ -642,8 +617,8 @@ class global_c = object (self)
       let cond = Llvm.build_intcast cond int_type (get_name ()) builder in  
       let _ = func#load cond in  
       let _ = Llvm.build_alloca int_type (get_name () ^ "_tag_end") builder in
-      let _ = Llvm.build_br block_3 builder in
-      Llvm.position_at_end block_3 builder 
+      let _ = Llvm.build_br end_block builder in
+      Llvm.position_at_end end_block builder 
       
     | ARRAY size -> 
       let ptl_ar = func#store in 
@@ -670,35 +645,104 @@ class global_c = object (self)
       ignore @@ func#load cond;
       let _ = Llvm.build_br block_3 builder in
       Llvm.position_at_end block_3 builder 
-    | PATT patt -> (match patt with 
+    | PATT patt ->
+      (match patt with 
       Closure -> 
         let ptl_cl = func#store in 
         func#drop;
+
+        let block_3 = self#insert_block func (get_name() ^ "_closurepattblock_3") in 
+        let block_2 = self#insert_block func (get_name() ^ "_closurepattblock_2") in 
+        let block_1 = self#insert_block func (get_name() ^ "_closurepattblock_1") in 
+        let cond = Llvm.build_and ptl_cl one (get_name ()) builder in 
+        let cond = Llvm.build_icmp Eq cond one (get_name()) builder in 
+        let _ = Llvm.build_cond_br  cond block_1 block_2 builder in 
+        let _ = Llvm.position_at_end block_1 builder in
+        let _ = func#load_int zero in 
+        let _ = Llvm.build_br block_3 builder in
+        (* if correct compare tag *)
+        func#drop;
+        let _ = Llvm.position_at_end block_2 builder in
+        let ptl_cl = Llvm.build_inttoptr ptl_cl int_ptr_type (get_name ()) builder in  
         let code_ptr = Llvm.build_gep ptl_cl [| mtwo |] (get_name ()) builder in
         let code = Llvm.build_load code_ptr (get_name()) builder in  
         let res = Llvm.build_icmp Eq  closure_code code (get_name ()) builder in 
-        ignore @@ func#load res
-      | String -> 
+        let res = Llvm.build_intcast res int_type (get_name ()) builder in  
+        ignore @@ func#load_int res;
+        ignore @@ Llvm.build_br block_3 builder;
+        Llvm.position_at_end block_3 builder
+      | String ->
         let ptl_st = func#store in 
         func#drop;
-        let code_ptr = Llvm.build_gep ptl_st [| mtwo |] (get_name ()) builder in
+        let block_3 = self#insert_block func (get_name() ^ "_closurepattblock_3") in 
+        let block_2 = self#insert_block func (get_name() ^ "_closurepattblock_2") in 
+        let block_1 = self#insert_block func (get_name() ^ "_closurepattblock_1") in 
+        let cond = Llvm.build_and ptl_st one (get_name ()) builder in 
+        let cond = Llvm.build_icmp Eq cond one (get_name()) builder in 
+        let _ = Llvm.build_cond_br  cond block_1 block_2 builder in 
+        let _ = Llvm.position_at_end block_1 builder in
+        let _ = func#load_int zero in 
+        let _ = Llvm.build_br block_3 builder in
+        (* if correct compare tag *)
+        func#drop;
+        let _ = Llvm.position_at_end block_2 builder in
+        let ptl_cl = Llvm.build_inttoptr ptl_st int_ptr_type (get_name ()) builder in  
+        let code_ptr = Llvm.build_gep ptl_cl [| mtwo |] (get_name ()) builder in
         let code = Llvm.build_load code_ptr (get_name()) builder in  
         let res = Llvm.build_icmp Eq  string_code code (get_name ()) builder in 
-        ignore @@ func#load res
+        let res = Llvm.build_intcast res int_type (get_name ()) builder in  
+        ignore @@ func#load_int res;
+        ignore @@ Llvm.build_br block_3 builder;
+        Llvm.position_at_end block_3 builder
       | Array -> 
+
         let ptl_ar = func#store in 
         func#drop;
-        let code_ptr = Llvm.build_gep ptl_ar [| mtwo |] (get_name ()) builder in
+
+        let block_3 = self#insert_block func (get_name() ^ "_closurepattblock_3") in 
+        let block_2 = self#insert_block func (get_name() ^ "_closurepattblock_2") in 
+        let block_1 = self#insert_block func (get_name() ^ "_closurepattblock_1") in 
+        let cond = Llvm.build_and ptl_ar one (get_name ()) builder in 
+        let cond = Llvm.build_icmp Eq cond one (get_name()) builder in 
+        let _ = Llvm.build_cond_br  cond block_1 block_2 builder in 
+        let _ = Llvm.position_at_end block_1 builder in
+        let _ = func#load_int zero in 
+        let _ = Llvm.build_br block_3 builder in
+        (* if correct compare tag *)
+        func#drop;
+        let _ = Llvm.position_at_end block_2 builder in
+        let ptl_cl = Llvm.build_inttoptr ptl_ar int_ptr_type (get_name ()) builder in  
+        let code_ptr = Llvm.build_gep ptl_cl [| mtwo |] (get_name ()) builder in
         let code = Llvm.build_load code_ptr (get_name()) builder in  
         let res = Llvm.build_icmp Eq  array_code code (get_name ()) builder in 
-        ignore @@ func#load res
+        let res = Llvm.build_intcast res int_type (get_name ()) builder in  
+        ignore @@ func#load_int res;
+        ignore @@ Llvm.build_br block_3 builder;
+        Llvm.position_at_end block_3 builder
       | Sexp -> 
         let ptl_se = func#store in 
         func#drop;
-        let code_ptr = Llvm.build_gep ptl_se [| mthree |] (get_name ()) builder in
+
+        let block_3 = self#insert_block func (get_name() ^ "_closurepattblock_3") in 
+        let block_2 = self#insert_block func (get_name() ^ "_closurepattblock_2") in 
+        let block_1 = self#insert_block func (get_name() ^ "_closurepattblock_1") in 
+        let cond = Llvm.build_and ptl_se one (get_name ()) builder in 
+        let cond = Llvm.build_icmp Eq cond one (get_name()) builder in 
+        let _ = Llvm.build_cond_br  cond block_1 block_2 builder in 
+        let _ = Llvm.position_at_end block_1 builder in
+        let _ = func#load_int zero in 
+        let _ = Llvm.build_br block_3 builder in
+        (* if correct compare tag *)
+        func#drop;
+        let _ = Llvm.position_at_end block_2 builder in
+        let ptl_cl = Llvm.build_inttoptr ptl_se int_ptr_type (get_name ()) builder in  
+        let code_ptr = Llvm.build_gep ptl_cl [| mtwo |] (get_name ()) builder in
         let code = Llvm.build_load code_ptr (get_name()) builder in  
         let res = Llvm.build_icmp Eq  sexp_code code (get_name ()) builder in 
-        ignore @@ func#load res
+        let res = Llvm.build_intcast res int_type (get_name ()) builder in  
+        ignore @@ func#load_int res;
+        ignore @@ Llvm.build_br block_3 builder;
+        Llvm.position_at_end block_3 builder
       | StrCmp -> 
         let str1 = func#store in 
         func#drop;
@@ -736,12 +780,14 @@ class global_c = object (self)
         let ptnl_int = func#store in 
         func#drop;
         let res = Llvm.build_and ptnl_int one (get_name ()) builder in 
-        ignore @@ func#load res
+        let res = Llvm.build_intcast res int_type (get_name ()) builder in  
+        ignore @@ func#load_int res
       | Boxed  ->         
         let ptnl_int = func#store in 
         func#drop;
         let res = Llvm.build_not (Llvm.build_and ptnl_int one (get_name ()) builder) (get_name ()) builder in 
-        ignore @@ func#load res 
+        let res = Llvm.build_intcast res int_type (get_name ()) builder in  
+        ignore @@ func#load_int res 
       )
     | FAIL (loc, leave_value) ->
       let printf = self#get_llfunction "Lprintf" in 
@@ -773,11 +819,19 @@ class global_c = object (self)
       ) insns
 end
 
+let define_std () = 
+  let _ = STD_definition.create_array_1 ()  in
+  let _ = STD_definition.define_read ()  in
+  let _ = STD_definition.define_write () in 
+  let _ = STD_definition.define_lhd () in 
+  STD_definition.define_ltl () 
+
+
 let build (insns:SM.prg) =
   let global = new global_c in 
   global#cut_functions insns;
-  (* let _ = create_array_1 ()  in *)
   let _ = global#create_function "main" in 
+  (* let _ = define_std () in  *)
   let filename = "output.ll" in 
   Llvm.print_module filename main_module;
   

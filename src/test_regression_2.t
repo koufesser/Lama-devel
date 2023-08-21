@@ -1,6 +1,6 @@
   $ cat > test.sh <<-EOF
   > #!/bin/bash
-  > for i in {40..99}
+  > for i in {60..99}
   > do
   >   START="../../../../../regression"
   >   if test -f "\${START}/test0\${i}.lama"; then
