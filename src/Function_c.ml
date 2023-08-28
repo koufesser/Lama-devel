@@ -136,7 +136,7 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
     Llvm.build_load ptr (get_name() ^ "_loaded_param") builder  
 
   method set_param i value = 
-    let ptr = Llvm.build_gep params [| Llvm.const_int int_type @@ i + 1 |] (get_name()^ "param_setting") builder in 
+    let ptr = Llvm.build_gep params [| Llvm.const_int int_type @@ i + 1 |] (get_name()^ "_param_setting") builder in 
     Llvm.build_store value ptr builder 
 
   method set_reachable s = 
@@ -155,10 +155,10 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
 
   method get_free = 
     stack_fullness <- stack_fullness + 1;
-    Llvm.build_gep rstack [| Llvm.const_int int_type @@ stack_fullness - 1 |] (get_name()) builder
+    Llvm.build_gep rstack [| Llvm.const_int int_type @@ stack_fullness - 1 |] (get_name() ^ "_free_ptr_") builder
 
   method get_front = 
-    Llvm.build_gep rstack [| Llvm.const_int int_type (stack_fullness - 1) |] (get_name()) builder
+    Llvm.build_gep rstack [| Llvm.const_int int_type (stack_fullness - 1) |] (get_name() ^ "_front_ptr") builder
 
   method drop = 
     stack_fullness <- stack_fullness - 1;
@@ -168,7 +168,10 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
     let builder = Llvm.builder_at context (Llvm.instr_begin (Llvm.entry_block func)) in
     rstack <- Llvm.build_array_alloca int_type (Llvm.const_int int_type size) (get_name()) builder;
     params <- Llvm.build_array_alloca int_type (Llvm.const_int int_type args) (get_name()) builder;
-    for i = 0 to args - 1 do
+    if args > 0 then 
+      let value = Llvm.param func 0 in    
+    ignore @@ Llvm.build_store value params builder ;
+    for i = 1 to args - 1 do
       let ptr = Llvm.build_gep params [| Llvm.const_int int_type i |] (get_name()) builder in
       let value = Llvm.param func i in    
       ignore @@ Llvm.build_store value ptr builder 
@@ -189,18 +192,18 @@ class function_c (name:string)  (func : Llvm.llvalue) (args : int) = object (sel
 
   method store = 
     let ptr = self#get_front in 
-    let stored = Llvm.build_load ptr (get_name ()) builder in 
+    let stored = Llvm.build_load ptr (get_name () ^ "_store") builder in 
     stored
 
   method store_int =
   let ptr = self#get_front in 
-  let stored = Llvm.build_load ptr (get_name ()) builder in 
+  let stored = Llvm.build_load ptr (get_name () ^ "_store") builder in 
   let st_int = self#unmark_int stored in
   st_int
 
   method store_and_drop_n  n = 
     stack_fullness <- stack_fullness - n;
-    Llvm.build_gep rstack [| Llvm.const_int int_type @@ stack_fullness |] (get_name()) builder
+    Llvm.build_gep rstack [| Llvm.const_int int_type @@ stack_fullness |] (get_name() ^ "store_and_drop") builder
 
 
   method get_local_ptr name = 

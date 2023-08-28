@@ -1,7 +1,13 @@
-(
-  var n = read (), i;
+fun f (a) {
+  fun g (b) {
+    fun h (c) {
+       fun (x) { x + a + b + c}
+    }
+     h (b)
+  }
+   g (a)
+}
 
-  for i := 0, i < 5, i := i+1 do
-    write (1)
-  od
-)
+var x = read ();
+
+write (f(10)(5))
