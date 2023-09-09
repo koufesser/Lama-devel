@@ -4,7 +4,7 @@
 
 # include "runtime.h"
 
-# define __ENABLE_GC__ 
+// # define __ENABLE_GC__ 
 # ifndef __ENABLE_GC__
 # define alloc malloc
 # endif
@@ -1324,34 +1324,34 @@ extern int Lsystem (char *cmd) {
   return BOX (system (cmd));
 }
 
-extern void Lfprintf (FILE *f, char *s, ...) {
-  va_list args = (va_list) BOX (NULL);
+// extern void Lfprintf (FILE *f, char *s, ...) {
+//   va_list args = (va_list) BOX (NULL);
 
-  ASSERT_BOXED("fprintf:1", f);
-  ASSERT_STRING("fprintf:2", s);  
+//   ASSERT_BOXED("fprintf:1", f);
+//   ASSERT_STRING("fprintf:2", s);  
   
-  va_start    (args, s);
-  fix_unboxed (s, args);
+//   va_start    (args, s);
+//   fix_unboxed (s, args);
   
-  if (vfprintf (f, s, args) < 0) {
-    failure ("fprintf (...): %s\n", strerror (errno));
-  }
-}
+//   if (vfprintf (f, s, args) < 0) {
+//     failure ("fprintf (...): %s\n", strerror (errno));
+//   }
+// }
 
-extern void Lprintf (char *s, ...) {
-  va_list args = (va_list) BOX (NULL);
+// extern void Lprintf (char *s, ...) {
+//   va_list args = (va_list) BOX (NULL);
 
-  ASSERT_STRING("printf:1", s);
+//   ASSERT_STRING("printf:1", s);
 
-  va_start    (args, s);
-  fix_unboxed (s, args);
+//   va_start    (args, s);
+//   fix_unboxed (s, args);
   
-  if (vprintf (s, args) < 0) {
-    failure ("fprintf (...): %s\n", strerror (errno));
-  }
+//   if (vprintf (s, args) < 0) {
+//     failure ("fprintf (...): %s\n", strerror (errno));
+//   }
 
-  fflush (stdout);
-}
+//   fflush (stdout);
+// }
 
 extern FILE* Lfopen (char *f, char *m) {
   FILE* h;
@@ -1860,13 +1860,13 @@ extern void gc_test_and_copy_root (size_t ** root) {
 #endif
 }
 
-extern void gc_root_scan_data (void) {
-  size_t * p = (size_t*)&__start_custom_data;
-  while  (p < (size_t*)&__stop_custom_data) {
-    gc_test_and_copy_root ((size_t**)p);
-    p++;
-  }
-}
+// extern void gc_root_scan_data (void) {
+//   size_t * p = (size_t*)&__start_custom_data;
+//   while  (p < (size_t*)&__stop_custom_data) {
+//     gc_test_and_copy_root ((size_t**)p);
+//     p++;
+//   }
+// }
 
 static inline void init_extra_roots (void) {
   extra_roots.current_free = 0;
@@ -1907,7 +1907,7 @@ static void* gc (size_t size) {
 	  __gc_stack_top, __gc_stack_bottom);
   fflush (stdout);
 #endif
-  gc_root_scan_data ();
+  // gc_root_scan_data ();
 #ifdef DEBUG_PRINT
   print_indent ();
   printf ("gc: data is scanned\n"); fflush (stdout);

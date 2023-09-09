@@ -3,5 +3,5 @@
   $ ./Driver.exe -sml test_if.sm -o curry1.o
   $ cp "output.ll" "../../../../../src/array1.ll"
   $ llc output.ll  -o output1.s
-  $ clang -no-pie stdlib.o output.o  "../../../../../src/std.ll" || echo $?
+  $ clang -no-pie stdlib.o output.o  "../../../../../runtime/runtime.c" || echo $?
   $ ./a.out < "../../../../../src/test_if.input"

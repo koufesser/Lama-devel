@@ -18,11 +18,10 @@ let lfalse = Llvm.const_int i1_type 0
 let ltrue = Llvm.const_int i1_type 1
 let last_bit = 31
 let builtIns = ["Lprintf"; "Lstrcmp"; ".array"]
-
-let array_code = Llvm.const_int int_type 1
-let sexp_code = Llvm.const_int int_type 2
-let string_code = Llvm.const_int int_type 3
-let closure_code = Llvm.const_int int_type 4
+let array_code = Llvm.const_int int_type 0x00000003
+let sexp_code = Llvm.const_int int_type 0x00000005
+let string_code = Llvm.const_int int_type 0x00000001
+let closure_code = Llvm.const_int int_type 0x00000007 
 
 module BuiltInsMapType = Map.Make(String)
 type args_type = 

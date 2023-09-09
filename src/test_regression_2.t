@@ -9,7 +9,7 @@
   >   ./Driver.exe -sml "test0\${i}.sm" -o curry1.o
   >   cp "output.ll" "../../../../../src/array1.ll"
   >   llc output.ll -o output1.s
-  >   clang -no-pie stdlib.o output.o "../../../../../src/std.ll"
+  >   clang -Wno-everything -no-pie stdlib.o output.o "../../../../../runtime/runtime.c"
   >   ./a.out < "\${START}/test0\${i}.input" > "test0\${i}.log" 
   >   diff  "test0\${i}.log" "\${START}/orig/test0\${i}.log"
   >   fi

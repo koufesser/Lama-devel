@@ -1,13 +1,24 @@
-fun f (a) {
-  fun g (b) {
-    fun h (c) {
-       fun (x) { x + a + b + c}
-    }
-     h (b)
-  }
-   g (a)
+var x, y, i, j;
+
+fun printAS (x) {
+  var i, j;
+  for i := 0, i<x.length, i:=i+1 do
+    for j := 0, j<x[i].length, j:=j+1 do
+      write (x[i][j])
+    od
+  od
 }
 
-var x = read ();
+y := read ();
 
-write (f(10)(5))
+x := ["abcd", "efgh"];
+
+printAS (x);
+
+for i := 0, i<x.length, i:=i+1 do
+  for j := 0, j<x[i].length, j:=j+1 do
+    x[i][j] := 'a'
+  od
+od;
+
+printAS (x)
